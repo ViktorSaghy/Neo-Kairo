@@ -590,7 +590,5 @@ export const SIDEQUESTS = {
 };
 
 // Track active and completed sidequests per run
-export let RUN_QUESTS = {}; // questId -> { act, choices, done }
-export const resetQuests = () => { RUN_QUESTS = {}; };
 
 
