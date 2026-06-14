@@ -2,10 +2,9 @@ import { useState, useEffect, useRef, useCallback, useMemo } from "react";
 import { SIGN_MSGS, ENEMY_ENTRANCE, getEnemyEntrance, ENEMY_DEATH, getEnemyDeath, FREE_TERMINAL_LORE, pickFreeTerminalLore, FACTION_ENTRY_LINES, getFactionEntry, AMBIENT_EVENTS, CHUNK_ATMOSPHERE, getChunkAtmosphere } from './data/world.js';
 import { VENDOR_DESC, shopInventory, weaponStock, armorStock, lootTable, jobPool } from './data/items.js';
 import { NPC_POOL_BY_CHUNK, NPCS, getNPCForBackstory, NARRATIVE_EVENTS, pickNarrativeEvent, resetNarrativeEvents, THRESHOLD_SCENES, JOB_GIVER_NAMES, getJobGiverName, NAME_PREFIXES, NAME_SUFFIXES, NAME_HANDLES, generateHandle } from './data/npcs.js';
-import { SIDEQUESTS } from './data/quests.js';
-let RUN_QUESTS = {};
-const resetQuests = () => { RUN_QUESTS = {}; };
+import { SIDEQUESTS, RUN_QUESTS, resetQuests } from './data/quests.js';
 import { ARCHETYPE_EXPLORE_ABILITIES, WORLD_ENEMIES, WORLD_AUGMENTS, WORLD_FACTIONS, FACTION_TIERS, getFactionTier, getNextTierThreshold, FACTION_EFFECTS, LEGACY_UNLOCKS, HEIST_REQS, AXIOM_HEIST_REQS, ACHIEVEMENTS, UNLOCK_GATES, checkAchievements } from './data/achievements.js';
+const rollDice = (min, max) => Math.floor(Math.random() * (max - min + 1)) + min;
 
 class NeoKairoAudio {
   constructor() {
