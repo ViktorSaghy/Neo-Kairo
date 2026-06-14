@@ -1177,9 +1177,6 @@ function enemyPool(danger, faction, layer) {
 
 
 
-
-
-
 // ── CHUNK GENERATOR v2 ──
 function generateChunk(cx, cy, layer, playerDist, looted) {
   const rng = mkRng(chunkSeed(cx + layer * 1000, cy + layer * 1000));
@@ -1616,8 +1613,13 @@ function invalidateChunk(cx,cy,layer){chunkCache.delete(`${cx},${cy},${layer}`);
 // ============================================================
 // ── NPC POOL BY CHUNK ──
 
+// ── SIDEQUEST DATA ──
+// Each NPC has quest chains. Quests have acts: open, mid, close.
+// Acts branch on archetype, backstory, and player choices.
 // ── ARCHETYPE EXPLORATION BONUSES ──
 // These activate contextually during exploration (not just combat)
+
+// ── PERSISTENT STORAGE HELPERS ──
 const SAVE_KEY_CHAR   = 'nk_char_save';
 const SAVE_KEY_LEGACY = 'nk_legacy_save';
 
@@ -1771,244 +1773,11 @@ function getStartingRepPreview(archetypeId, backstoryId, legacyUnlocks) {
 }
 
 // ── RECURRING NPCs ──
-  const map = { debt: 'Rusty', witness: 'Nadia', exile: 'Aria', ghost: 'Doc Mem', corpo: 'Aria' };
-  return map[backstoryId] || 'Rusty';
-};
-
-// ── NARRATIVE EVENT POOL ──
-// Non-repeating per run. Pool-based. Some backstory-aware.
-// Phase: 'early' (0-4 chunks), 'mid' (5-12), 'late' (12+)
-  const visited = (char.visited || []).length;
-  const phase = visited < 5 ? 'early' : visited < 14 ? 'mid' : 'late';
-  const pool = NARRATIVE_EVENTS[phase] || NARRATIVE_EVENTS.early;
-  const available = pool.filter(e => !RUN_EVENTS_SEEN.has(e.id));
-  if (!available.length) return null;
-  const ev = available[Math.floor(Math.random() * available.length)];
-  RUN_EVENTS_SEEN.add(ev.id);
-  return ev;
-};
-      const rep = char.reputation || {};
-      const underground = Math.max(rep.ghosts || 0, rep.meridian || 0, rep.ironhand || 0);
-      const progress = [
-        char.level >= HEIST_REQS.level,
-        char.credits >= HEIST_REQS.credits,
-        (rep.axiom || 0) <= -25,
-        underground >= 60,
-      ].filter(Boolean).length;
-      return progress >= 3 && !(char.thresholdsSeen||[]).includes('heist_approach');
-    },
-    aiPrompt: (char) => `You are writing the internal voice of ${char.name}, a ${char.archetype} in Neo-Kairo 2089. They are close to executing a mission to destroy Axiom Corp's city-wide surveillance grid and CortexSync firmware pipeline. Personal stake: ${BACKSTORIES[char.backstory]?.loss || 'Everything they lost to corporate power.'}. Write 2-3 sentences of first-person internal monologue about being almost ready — the strange feeling of a plan becoming real. Terse. Not triumphant. The weight of what comes next.`,
-    fallback: (char) => `You've been building toward this long enough that it stopped feeling like a plan and started feeling like gravity. You're not ready. You don't think ready is a real thing. You go anyway.`,
-  },
-  // ── MAIN QUEST BEATS ──
-  // Beat 1: THE DISCOVERY — personal wound connects to the larger picture
-  // Fires after first sidequest completed with backstory contact (jobsDone >= 2, questsDone >= 1)
-  discovery: {
-    id: 'discovery',
-    trigger: (char) => {
-      const questDone = (char.questsCompleted || []).length >= 1;
-      const jobsDone = (char.jobsDone || 0) >= 2;
-      return questDone && jobsDone && !(char.thresholdsSeen||[]).includes('discovery');
-    },
-    aiPrompt: (char) => {
-      const bs = BACKSTORIES[char.backstory] || BACKSTORIES.debt;
-      const contactLines = {
-        debt: `${char.name}'s contact Rusty just told them something: the employment debt their sister signed isn't a financial contract. It's a firmware compliance agreement. Axiom owns the maintenance schedule for her mind. If she stops servicing the debt, cognitive degradation begins within ninety days.`,
-        witness: `${char.name}'s contact Nadia just showed them something: the firmware update that stopped eleven people from fighting that night wasn't a coincidence. It was a targeted suppression package, precision-deployed to a two-block radius. Someone authorised that specifically.`,
-        exile: `${char.name}'s contact Aria just confirmed something: the preference modification team ${char.name} used to work on wasn't experimental. It was operational. The update batches are still running. The targets now include Ghost Network contacts, Meridian coordinators, and anyone who's found data discrepancies in the Sync.`,
-        ghost: `${char.name}'s contact Doc Mem just told them what she found in the extraction data: what was written into ${char.name} wasn't standard firmware. It was a targeted package. Someone inside Axiom authorised a specific modification for a specific reason. She doesn't know why. She knows it wasn't random.`,
-        corpo: `${char.name}'s contact Aria just handed them something: a Division Seven file with their name on it. The restructure that cut their division wasn't budget. It was cleanup. Someone inside Axiom wanted them outside the building before a specific operation launched. She doesn't say which operation. She doesn't have to.`,
-      };
-      const context = contactLines[char.backstory] || contactLines.debt;
-      return `You are writing the internal voice of ${char.name}, a ${char.archetype} in Neo-Kairo 2089. ${context} Write 2-3 sentences of first-person internal monologue. The moment the personal becomes political — when they realise their wound isn't isolated, it's a symptom of something much larger and deliberate. Terse. Specific. End on a decision that hasn't been spoken yet.`;
-    },
-    fallback: (char) => {
-      const lines = {
-        debt: `The debt isn't money. It's the maintenance contract on her mind. Axiom holds the schedule. Miss three update cycles and she starts to degrade — not as a threat, just as how the hardware works without manufacturer support.
-
-You sit with that for a long time.
-
-Then you decide what kind of run this is.`,
-        witness: `The firmware update that stopped eleven people from fighting wasn't a glitch. It was a package. Precision-targeted. Two-block radius. Someone in Axiom wrote that update specifically for that night.
-
-You've been asking what it means for years. Now you know what it means.
-
-Now you have to decide what to do with that.`,
-        exile: `The preference modification team you worked on wasn't experimental. It's still running. The targets have expanded. You wrote the architecture for this. You didn't know what it would become.
-
-Maybe you did. That's the part you can't sit with.
-
-You've been running from what you built. You're going to have to turn around.`,
-        ghost: `The extraction data shows a targeted modification. Someone authorised a specific package for a specific person. You were that person. The reason isn't in the file.
-
-Six months of memory gone and someone in Axiom knows exactly what they took and why.
-
-You're going to find out what it was.`,
-        corpo: `The restructure that cut you loose was cleanup. Someone wanted you outside before something launched. You spent eighteen months thinking it was politics.
-
-It wasn't politics. It was containment.
-
-Someone in Axiom is afraid of what you know. That changes the negotiation.`,
-      };
-      return lines[char.backstory] || lines.debt;
-    },
-  },
-
-  // Beat 2: THE COMMITMENT — point of no return, active choice to go after Axiom
-  commitment: {
-    id: 'commitment',
-    trigger: (char) => {
-      const rep = char.reputation || {};
-      const axiomRep = rep.axiom || 0;
-      const isAxiomPath = axiomRep >= 50;
-      const isResistancePath = axiomRep <= -40;
-      return (isAxiomPath || isResistancePath) &&
-        (char.jobsDone || 0) >= 5 &&
-        !(char.thresholdsSeen||[]).includes('commitment');
-    },
-    aiPrompt: (char) => {
-      const rep = char.reputation || {};
-      const isAxiomPath = (rep.axiom || 0) >= 50;
-      if (isAxiomPath) {
-        return `You are writing the internal voice of ${char.name}, a ${char.archetype} in Neo-Kairo 2089. They have been doing Axiom-aligned work — contracts, enforcement, compliance jobs. They've crossed the point where they're a contractor into the point where they're an asset. Axiom has noticed them. Someone in Division Seven has pulled their file. Backstory: ${BACKSTORIES[char.backstory]?.hook || 'A runner in the city.'}. Write 2-3 sentences of first-person internal monologue. The moment they commit — not to Axiom ideologically, but to this path specifically. What does it feel like to stop running and start arriving? Terse. Unsentimental. End on what they're trading and what they're getting.`;
-      }
-      return `You are writing the internal voice of ${char.name}, a ${char.archetype} in Neo-Kairo 2089. They have made Axiom hostile — done enough damage, crossed enough lines that there's no going back to neutral. Their contact has asked them directly: are you in? Not for a job. For the whole thing. Backstory: ${BACKSTORIES[char.backstory]?.hook || 'A runner in the city.'}. Write 2-3 sentences of first-person internal monologue. The moment of active commitment — not because they have to, but because they've decided. What does it cost? What does it clarify? Terse. End on the decision itself.`;
-    },
-    fallback: (char) => {
-      const rep = char.reputation || {};
-      const isAxiomPath = (rep.axiom || 0) >= 50;
-      if (isAxiomPath) {
-        return `Someone in Division Seven pulled your file. You know because the jobs started changing — more specific, higher clearance, better pay. They're not hiring you for a contract. They're assessing whether to bring you back in.
-
-You've been waiting for this.
-
-You make sure they like what they see.`;
-      }
-      return `Your contact asks once. Not for a job — for the whole thing. You've been working toward this without naming it. Now it has a name.
-
-You say yes before they finish asking.
-
-Some decisions you've already made. You just haven't said them out loud yet.`;
-    },
-  },
-
-  // Beat 3: THE PLAN — faction contact brings the intelligence that makes the ending possible
-  the_plan: {
-    id: 'the_plan',
-    trigger: (char) => {
-      const rep = char.reputation || {};
-      const underground = Math.max(rep.ghosts || 0, rep.meridian || 0, rep.ironhand || 0);
-      const isAxiomPath = (rep.axiom || 0) >= 70;
-      const isResistancePath = underground >= 45 && (rep.axiom || 0) <= -40;
-      return (isAxiomPath || isResistancePath) &&
-        char.level >= 6 &&
-        !(char.thresholdsSeen||[]).includes('the_plan');
-    },
-    aiPrompt: (char) => {
-      const rep = char.reputation || {};
-      const isAxiomPath = (rep.axiom || 0) >= 70;
-      if (isAxiomPath) {
-        return `You are writing the internal voice of ${char.name}, a ${char.archetype} in Neo-Kairo 2089. They've just been briefed by an Axiom Division Seven handler: Operation Zero Export. The firmware pipeline. The global rollout. The specific role they'll play in securing Neo-Kairo as the proof of concept before export. Personal stake: ${BACKSTORIES[char.backstory]?.loss || 'Everything they gave up to get here.'}. Write 2-3 sentences of first-person internal monologue. Not excitement — the specific feeling of a plan that was always this. The shape of it. What it requires. What it means that they're being trusted with it. End on what they'll need to do that they haven't done yet.`;
-      }
-      return `You are writing the internal voice of ${char.name}, a ${char.archetype} in Neo-Kairo 2089. Their underground contact has just given them the intelligence that makes the operation possible: the location of the firmware pipeline server, the maintenance window, the three-minute gap in Axiom's surveillance rotation. It's real. It's actionable. Personal stake: ${BACKSTORIES[char.backstory]?.loss || 'Everything they lost to corporate power.'}. Write 2-3 sentences of first-person internal monologue. The moment a goal becomes a plan — when abstract intention meets specific possibility. Not triumphant. Weighted. End on what they'll need that they don't have yet.`;
-    },
-    fallback: (char) => {
-      const rep = char.reputation || {};
-      const isAxiomPath = (rep.axiom || 0) >= 70;
-      if (isAxiomPath) {
-        return `Operation Zero Export. They brief you in a clean room in the Spire — no recording, no log. The pipeline. The rollout. Your specific role in making sure the city holds long enough to export.
-
-This is what you came back for.
-
-You don't say that. You listen, take the file, and start calculating what you still need.`;
-      }
-      return `The pipeline is in the Spire basement. Three-minute window, 0300, during maintenance rotation. Your contact lays it out clean.
-
-For the first time the whole thing is visible from start to finish.
-
-You look at what you have. You look at what you need. You go get the rest.`;
-    },
-  },
-
-  // Named antagonist — Director Reyes, Division Seven
-  // Fires mid-run when Axiom rep crosses -50 OR +60 (she's paying attention either way)
-  reyes_notice: {
-    id: 'reyes_notice',
-    trigger: (char) => {
-      const axiomRep = char.reputation?.axiom || 0;
-      const noticed = axiomRep <= -50 || axiomRep >= 60;
-      return noticed && (char.jobsDone || 0) >= 4 && !(char.thresholdsSeen||[]).includes('reyes_notice');
-    },
-    aiPrompt: (char) => {
-      const isAxiomPath = (char.reputation?.axiom || 0) >= 60;
-      if (isAxiomPath) {
-        return `You are writing a short intercepted message in Neo-Kairo 2089. Director Reyes, Division Seven, Axiom Corp, has flagged ${char.name} as a person of interest — not as a threat, but as a potential asset. She is precise, unsentimental, and has been running city-level operations for eleven years. Write 2-3 sentences as an internal Axiom memo from Reyes to her handler team. Clipped corporate register. She notes ${char.name}'s recent work, their history, and a single directive. End on something that reveals she has been watching longer than ${char.name} knows.`;
-      }
-      return `You are writing a short intercepted message in Neo-Kairo 2089. Director Reyes, Division Seven, Axiom Corp, has flagged ${char.name} as a priority threat. She is precise, unsentimental, and has been running city-level operations for eleven years. Write 2-3 sentences as an internal Axiom memo from Reyes to her enforcement team. Clipped corporate register. She identifies ${char.name} by handle, notes their recent actions against Axiom, and gives a single directive. End on something that makes it clear she's been watching longer than ${char.name} knew.`;
-    },
-    fallback: (char) => {
-      const isAxiomPath = (char.reputation?.axiom || 0) >= 60;
-      if (isAxiomPath) {
-        return `AXIOM INTERNAL — DIVISION SEVEN
-FROM: Director Reyes
-RE: Asset flagged — ${char.name}
-
-Work history consistent with Division Seven profile. Recommend accelerated access. Note: subject has been in our data since before their last known employer. We've been watching. Now we let them know we're watching.`;
-      }
-      return `AXIOM INTERNAL — DIVISION SEVEN
-FROM: Director Reyes
-RE: Priority flag — ${char.name}
-
-Subject has crossed three Axiom operations in eight days. Not random. Recommend active response. Note: we've had eyes on this one since the Ghost Network flagged their extraction. They think they found us. We let them think that.`;
-    },
-  },
-
-  humanity_5: {
-    id: 'humanity_5',
-    trigger: (char) => (char.humanity || 10) <= 5 && !(char.thresholdsSeen||[]).includes('humanity_5'),
-    aiPrompt: (char) => `You are writing the internal voice of ${char.name}, a ${char.archetype} in Neo-Kairo 2089. They have reached a point where more than half of their body is chrome — augmented past the point of unremarkable, past the point people stop noticing and start watching. Backstory: ${BACKSTORIES[char.backstory]?.hook || 'A ghost with no past.'}. Write 2-3 sentences of first-person present-tense internal monologue. The subject is not the chrome itself — it is the gap between who they were and what they are becoming. What do they notice about themselves that they didn't use to notice? Specific and unsentimental. Cyberpunk noir tone. No clichés.`,
-    fallback: (char) => `You catch your reflection in a shop window and run a quick inventory: how much of what you see is still original. The number is smaller than last time you checked. You're not sure when you stopped finding that interesting.`,
-  },
-  humanity_3: {
-    id: 'humanity_3',
-    trigger: (char) => (char.humanity || 10) <= 3 && !(char.thresholdsSeen||[]).includes('humanity_3'),
-    aiPrompt: (char) => `You are writing the internal voice of ${char.name}, a ${char.archetype} in Neo-Kairo 2089. They are now mostly chrome — three points of humanity remaining. The question of what it means to be human is no longer abstract. Backstory: ${BACKSTORIES[char.backstory]?.hook || 'A ghost with no past.'}. Write 2-3 sentences of first-person present-tense internal monologue about what it feels like to be this far in. Not self-pity — observation. What do they feel that surprises them? What do they no longer feel that they expected to miss? End on something specific. No resolution.`,
-    fallback: (char) => `There's a moment sometimes, in the quiet, where you try to locate the part that makes decisions. The part that wanted this. You find the augments. You find the chrome. Somewhere underneath there's still something that knows the difference between choosing and drifting. You hold onto that.`,
-  },
-  humanity_1: {
-    id: 'humanity_1',
-    trigger: (char) => (char.humanity || 10) <= 1 && !(char.thresholdsSeen||[]).includes('humanity_1'),
-    aiPrompt: (char) => `You are writing the internal voice of ${char.name}, a ${char.archetype} in Neo-Kairo 2089. They have one point of humanity left. They are almost entirely chrome. The cascade is close. Backstory: ${BACKSTORIES[char.backstory]?.hook || 'A ghost with no past.'}. Write 2-3 sentences. Not panic. Not acceptance. The specific, strange experience of being almost gone while still being present enough to notice. What does the last piece of the original self feel like when everything else has been replaced? What is it holding onto, and why? Terse. True. End on an image, not a feeling.`,
-    fallback: (char) => `You don't sleep anymore. The chrome doesn't need it. Something in you still reaches for it — some reflex from a body that's mostly not there now. You let it. Whatever's left of you is spending its energy on the run. That's enough. That has to be enough.`,
-  },
-};
-
-// ── JOB GIVER VOICE ──
-// NPCs give jobs. Different from a board. They have a name and an exchange.
-  const pool = JOB_GIVER_NAMES[chunkType] || JOB_GIVER_NAMES.default;
-  return pool[Math.floor(Math.random() * pool.length)];
-};
-
-// ── NAME GENERATOR ──
-  const r = Math.random();
-  if (r < 0.4) {
-    // Compound: prefix + suffix
-    return NAME_PREFIXES[Math.floor(Math.random() * NAME_PREFIXES.length)] + NAME_SUFFIXES[Math.floor(Math.random() * NAME_SUFFIXES.length)];
-  } else if (r < 0.7) {
-    // Short handle only
-    return NAME_HANDLES[Math.floor(Math.random() * NAME_HANDLES.length)];
-  } else {
-    // Handle + number suffix
-    const h = NAME_HANDLES[Math.floor(Math.random() * NAME_HANDLES.length)];
-    const n = Math.floor(Math.random() * 9) + 1;
-    return h + '-' + n;
-  }
-};
+// Triggered once per run at key story moments.
+// Returns a prompt for AI scene generation.
 
 // ── LOCATION ATMOSPHERE ──
 // Replaces generic chunk description with evocative writing per type
-
-
 function createCharacter(name, archetype, backstoryId) {
   const b = ARCHETYPES[archetype] || ARCHETYPES.ghost;
   const leg = SESSION_LEGACY;
