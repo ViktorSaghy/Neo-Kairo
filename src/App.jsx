@@ -4,7 +4,10 @@ import { VENDOR_DESC, shopInventory, weaponStock, armorStock, lootTable, jobPool
 import { NPC_POOL_BY_CHUNK, NPCS, getNPCForBackstory, NARRATIVE_EVENTS, pickNarrativeEvent, resetNarrativeEvents, THRESHOLD_SCENES, JOB_GIVER_NAMES, getJobGiverName, NAME_PREFIXES, NAME_SUFFIXES, NAME_HANDLES, generateHandle } from './data/npcs.js';
 import { SIDEQUESTS, RUN_QUESTS, resetQuests } from './data/quests.js';
 import { ARCHETYPE_EXPLORE_ABILITIES, WORLD_ENEMIES, WORLD_AUGMENTS, WORLD_FACTIONS, FACTION_TIERS, getFactionTier, getNextTierThreshold, FACTION_EFFECTS, LEGACY_UNLOCKS, HEIST_REQS, AXIOM_HEIST_REQS, ACHIEVEMENTS, UNLOCK_GATES, checkAchievements } from './data/achievements.js';
-const rollDice = (min, max) => Math.floor(Math.random() * (max - min + 1)) + min;
+let RUN_QUESTS = {};
+const resetQuests = () => { RUN_QUESTS = {}; };
+let RUN_EVENTS_SEEN = new Set();
+let SESSION_LEGACY = { points:0, unlocks:[], achievements:[], bestRun:null, totalRuns:0, wins:0 };
 
 class NeoKairoAudio {
   constructor() {
