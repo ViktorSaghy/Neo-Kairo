@@ -369,7 +369,7 @@ export const NARRATIVE_EVENTS = {
 };
 
 // Narrative event state — stored per run
-export let RUN_EVENTS_SEEN = new Set();
+let RUN_EVENTS_SEEN = new Set();
 export const pickNarrativeEvent = (char) => {
   const visited = (char.visited || []).length;
   const phase = visited < 5 ? 'early' : visited < 14 ? 'mid' : 'late';
