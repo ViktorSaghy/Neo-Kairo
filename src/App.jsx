@@ -1,13 +1,4 @@
 import { useState, useEffect, useRef, useCallback, useMemo } from "react";
-import { SIGN_MSGS, ENEMY_ENTRANCE, getEnemyEntrance, ENEMY_DEATH, getEnemyDeath, FREE_TERMINAL_LORE, pickFreeTerminalLore, FACTION_ENTRY_LINES, getFactionEntry, AMBIENT_EVENTS, CHUNK_ATMOSPHERE, getChunkAtmosphere } from './data/world.js';
-import { VENDOR_DESC, shopInventory, weaponStock, armorStock, lootTable, jobPool } from './data/items.js';
-import { NPC_POOL_BY_CHUNK, NPCS, getNPCForBackstory, NARRATIVE_EVENTS, pickNarrativeEvent, resetNarrativeEvents, THRESHOLD_SCENES, JOB_GIVER_NAMES, getJobGiverName, NAME_PREFIXES, NAME_SUFFIXES, NAME_HANDLES, generateHandle } from './data/npcs.js';
-import { SIDEQUESTS, RUN_QUESTS, resetQuests } from './data/quests.js';
-import { ARCHETYPE_EXPLORE_ABILITIES, WORLD_ENEMIES, WORLD_AUGMENTS, WORLD_FACTIONS, FACTION_TIERS, getFactionTier, getNextTierThreshold, FACTION_EFFECTS, LEGACY_UNLOCKS, HEIST_REQS, AXIOM_HEIST_REQS, ACHIEVEMENTS, UNLOCK_GATES, checkAchievements } from './data/achievements.js';
-let RUN_QUESTS = {};
-const resetQuests = () => { RUN_QUESTS = {}; };
-let RUN_EVENTS_SEEN = new Set();
-let SESSION_LEGACY = { points:0, unlocks:[], achievements:[], bestRun:null, totalRuns:0, wins:0 };
 
 class NeoKairoAudio {
   constructor() {
@@ -1173,12 +1164,252 @@ function enemyPool(danger, faction, layer) {
 }
 
 // ── SHOP / LOOT DATA (unchanged) ──
+const VENDOR_DESC = {
+  residential:"A woman behind a wire cage. Unsynced — you can tell by the way she's actually watching you instead of running overlay. Sells what she finds.",
+  market:"Rows of stalls under flickering neon. Half the vendors are running Sync overlay, tracking prices and competitors simultaneously. The other half are working harder and slower.",
+  gang_turf:"A scarred man with chrome fingers and no CortexSync. He deals in things that don't appear on firmware update logs.",
+  industrial:"Spare parts and surplus. The owner went unsynced after the factory installed Sync-mandatory compliance two years ago. Everything here has that specific quality of someone who chose a harder path.",
+  ruins:"A hooded figure in the rubble. Off-grid, off-Sync, off-everything. Whatever they sell, it won't show up in your update log.",
+  safehouse:"Clean space, careful prices. They run a tight operation here and the first rule is no Sync pings leave the building.",
+  black_market:"No names. No faces. No firmware tracking. Slide the credits, take the goods, and neither of you were here.",
+  corporate:"Axiom-branded everything. The vendor is Synced — mandatory at this clearance level. Expensive, pristine, and every transaction logged to your profile.",
+  tunnel:"Someone set up shop in a drainage pipe. Unsynced, for obvious reasons. The Sync signal doesn't reach this deep. They seem to like that.",
+  sump:"Deep market. What they sell you can't get in the Sync-tracked economy above.",
+  lobby:"Corp gift shop. The vendor's overlay is reading your clearance level right now.",
+  checkpoint:null,
+  default:"A vendor. Off the Sync grid, or acting like it.",
+};
+function shopInventory(ct,faction,danger){const base=[{id:'stim',name:'MedStim',price:80,sell:30,effect:'heal',value:40,desc:'Restores 40 HP.',stock:3},{id:'ammo_pack',name:'Ammo Pack',price:60,sell:20,effect:'ammo',value:0,desc:'Refills weapon ammo.',stock:3}];if(['gang_turf','black_market','sump','ruins'].includes(ct)){base.push({id:'trauma_kit',name:'Trauma Kit',price:170,sell:60,effect:'heal',value:100,desc:'Restores 100 HP.',stock:2},{id:'antitoxin',name:'Antitoxin',price:110,sell:40,effect:'cleanse',value:0,desc:'Clears status effects.',stock:2},{id:'stealth_cloak',name:'Stealth Cloak',price:280,sell:100,effect:'stealth',value:1,desc:'Skip next encounter.',stock:1});if(['black_market','ruins'].includes(ct)){base.push({id:'sync_jammer',name:'Sync Jammer',price:220,sell:70,effect:'jam_sync',value:1,desc:'Next encounter: Synced enemies lose coordination bonus. One use.',stock:1});}if(ct==='black_market'){base.push({id:'hack_chip',name:'Hack Chip',price:120,sell:40,effect:'hack',value:20,desc:'Reduces next hack difficulty. Stack 2 for max effect.',stock:2},{id:'neuro_block',name:'Neuro Blocker',price:220,sell:60,effect:'neuro_block',value:0,desc:'Suppresses psychosis cascade. 12h window.',stock:2});}}if(['market','residential','safehouse'].includes(ct)){base.push({id:'trauma_kit',name:'Trauma Kit',price:200,sell:70,effect:'heal',value:100,desc:'Restores 100 HP.',stock:2},{id:'hack_chip',name:'Hack Chip',price:120,sell:40,effect:'hack',value:20,desc:'Reduces next hack difficulty. Stack 2 for max effect.',stock:2},{id:'neuro_block',name:'Neuro Blocker',price:150,sell:50,effect:'neuro_block',value:0,desc:'Suppresses psychosis cascade. 12h window.',stock:2});}if(['corporate','lobby'].includes(ct)){base.push({id:'trauma_kit',name:'MediPak Pro',price:250,sell:80,effect:'heal',value:120,desc:'Restores 120 HP.',stock:2},{id:'neural_patch',name:'Neural Patch',price:180,sell:55,effect:'hack',value:20,desc:'Clears hacked status. Restores hack buffer.',stock:2},{id:'neuro_block',name:'Neuro Blocker',price:280,sell:70,effect:'neuro_block',value:0,desc:'Suppresses psychosis cascade. 12h window.',stock:1});}if(danger>=3&&!['corporate','lobby','black_market','gang_turf','sump','ruins'].includes(ct))base.push({id:'antitoxin',name:'Antitoxin',price:90,sell:30,effect:'cleanse',value:0,desc:'Clears status effects.',stock:1});const seen=new Set();return base.filter(i=>{if(seen.has(i.id))return false;seen.add(i.id);return true;});}
+function weaponStock(ct,faction,danger){const has=['gang_turf','black_market','industrial','ruins','corporate','lobby','checkpoint'].includes(ct);if(!has)return[];const all=[{id:'knife',name:'Mono Knife',damage:[8,15],type:'melee',value:150,sell:55,special:'bleed',tier:1},{id:'pipe',name:'Steel Pipe',damage:[10,18],type:'melee',value:80,sell:30,special:'stun',tier:1},{id:'pistol',name:'Syn-9 Pistol',damage:[15,25],type:'ranged',value:650,sell:220,special:null,tier:2,ammo:12,maxAmmo:12},{id:'smg',name:'Razorwind SMG',damage:[20,35],type:'ranged',value:1400,sell:480,special:'burst',tier:2,ammo:30,maxAmmo:30},{id:'vibro_machete',name:'Vibro Machete',damage:[28,44],type:'melee',value:2800,sell:900,special:'bleed',tier:3},{id:'shotgun',name:'Breach Shotgun',damage:[35,55],type:'ranged',value:3200,sell:1050,special:'stun',tier:3,ammo:6,maxAmmo:6},{id:'neural_spike',name:'Neural Spike',damage:[30,50],type:'tech',value:2200,sell:700,special:'hack',tier:3},{id:'plasma_blade',name:'Plasma Blade',damage:[45,70],type:'melee',value:6500,sell:2100,special:'burn',tier:4},{id:'railgun',name:'Axiom Railgun',damage:[60,90],type:'ranged',value:8000,sell:2600,special:'pierce',tier:4,ammo:4,maxAmmo:4}];const tier=Math.min(4,Math.max(1,danger-1));let pool=all.filter(w=>w.tier<=tier&&w.tier>=Math.max(1,tier-1));if(faction==='axiom')pool=pool.filter(w=>w.type!=='melee'||w.id==='plasma_blade');else if(faction==='ironhand')pool=pool.filter(w=>w.type!=='ranged'||w.tier<=2);return pool;}
+function armorStock(ct,danger){const zoneConfig={market:{maxTier:4},safehouse:{maxTier:3},corporate:{maxTier:4},black_market:{maxTier:4},gang_turf:{maxTier:2},industrial:{maxTier:2},ruins:{maxTier:1},sump:{maxTier:0},tunnel:{maxTier:2}};const config=zoneConfig[ct];if(!config)return[];const all=[{id:'scrap_vest',name:'Scrap Vest',defense:4,value:80,sell:25,special:null,tier:0},{id:'leather',name:'Synth-Leather Jacket',defense:8,value:200,sell:60,special:null,tier:1},{id:'kevlar',name:'Kevlar Vest',defense:18,value:1100,sell:360,special:null,tier:2},{id:'ghost_suit',name:'Ghost Suit',defense:25,value:4500,sell:1400,special:'resist_hack',tier:3},{id:'combat',name:'Combat Rig',defense:30,value:3500,sell:1100,special:'resist_bleed',tier:3},{id:'military',name:'Military Exo-Frame',defense:50,value:9000,sell:2900,special:'resist_burn',tier:4}];const dangerTier=Math.min(4,Math.max(0,danger));const effectiveTier=Math.min(config.maxTier,dangerTier);return all.filter(a=>a.tier<=effectiveTier);}
+function lootTable(danger,rng,chunkType){const tables={0:[{id:'stim',name:'MedStim',effect:'heal',value:40,price:0,sell:30,desc:'Restores 40 HP.'}],1:[{id:'stim',name:'MedStim',effect:'heal',value:40,price:0,sell:30,desc:'Restores 40 HP.'},{id:'credchip',name:'Cred Chip',effect:'credits',value:80,price:0,sell:0,desc:'Found cash.'},{id:'ammo_pack',name:'Ammo Pack',effect:'ammo',value:0,price:0,sell:15,desc:'Refills ammo.'}],2:[{id:'trauma_kit',name:'Trauma Kit',effect:'heal',value:100,price:0,sell:60,desc:'Restores 100 HP.'},{id:'credchip',name:'Cred Chip',effect:'credits',value:150,price:0,sell:0,desc:'Found cash.'},{id:'hack_chip',name:'Hack Chip',effect:'hack',value:20,price:0,sell:40,desc:'Reduces next hack difficulty. Stack 2 for max effect.'}],3:[{id:'trauma_kit',name:'Trauma Kit',effect:'heal',value:100,price:0,sell:60,desc:'Restores 100 HP.'},{id:'credchip',name:'Cred Chip',effect:'credits',value:300,price:0,sell:0,desc:'Corp payroll chip.'},{id:'antitoxin',name:'Antitoxin',effect:'cleanse',value:0,price:0,sell:40,desc:'Clears status.'},{id:'firmware_shard',name:'Firmware Shard',effect:'sell_only',value:0,price:0,sell:120,desc:'Partial Axiom CortexSync update log. Sell at any shop (¢ button in GEAR tab).'}],4:[{id:'credchip',name:'Axiom Payroll',effect:'credits',value:500,price:0,sell:0,desc:'Axiom payroll chip.'},{id:'antitoxin',name:'Antitoxin',effect:'cleanse',value:0,price:0,sell:40,desc:'Clears status.'},{id:'axiom_access_chip',name:'Axiom Access Chip',effect:'hack',value:35,price:0,sell:250,desc:'Corporate-grade. Reduces hack difficulty significantly. Sells for 250¢.'},{id:'cortex_log',name:'Cortex Log Fragment',effect:'sell_only',value:0,price:0,sell:180,desc:'Sync behavioral log fragment. Sell at any shop — valuable to Ghost Network brokers (¢ in GEAR tab).'}]};const zoneOverrides={corporate:{id:'axiom_access_chip',name:'Access Chip',effect:'hack',value:35,price:0,sell:250,desc:'Corporate-grade. Reduces hack difficulty.'},black_market:{id:'stealth_cloak',name:'Salvaged Cloak',effect:'stealth',value:1,price:0,sell:80,desc:'Skip next encounter. Found, not bought.'},sump:{id:'firmware_shard',name:'Firmware Shard',effect:'sell_only',value:0,price:0,sell:120,desc:'Partial Sync update log. Sell at any shop (¢ in GEAR tab).'},ruins:{id:'credchip',name:'Pre-Sync Cache',effect:'credits',value:200,price:0,sell:0,desc:'Old money. Hidden before the Sync rolled out.'},ripper_doc:{id:'antitoxin',name:'Neural Flush',effect:'cleanse',value:0,price:0,sell:55,desc:'Clears all status effects including Synced.'}};const t=tables[Math.min(4,danger)];const base=t[Math.floor(rng()*t.length)];const override=chunkType&&zoneOverrides[chunkType];if(override&&rng()<0.25)return override;return base;}
+function jobPool(ct,faction,danger,char){
+  const rep = char && char.reputation ? char.reputation : {};
+  const axiomRep = rep.axiom || 0;
+  const isAxiomAligned = axiomRep >= 25;
+  const pools = {
+    residential:  ['find_missing_kid','bodyguard_run'],
+    market:       ['find_corpo_rat','bodyguard_run'],
+    gang_turf:    ['smuggle_meds','find_corpo_rat','tag_corporate_pipes'],
+    industrial:   ['tag_corporate_pipes','smuggle_meds'],
+    ruins:        ['find_missing_kid','tag_corporate_pipes'],
+    safehouse:    ['bodyguard_run','find_corpo_rat'],
+    black_market: ['smuggle_meds','find_corpo_rat','erase_identity'],
+    tunnel:       ['smuggle_meds','find_missing_kid'],
+    sump:         ['tag_corporate_pipes','smuggle_meds'],
+    corporate:    isAxiomAligned ? ['enforce_contract','secure_installation','deliver_firmware','infiltrate_axiom','steal_blueprint'] : ['infiltrate_axiom','steal_blueprint','assassinate_exec'],
+    lobby:        isAxiomAligned ? ['enforce_contract','secure_installation','deliver_firmware','steal_blueprint'] : ['steal_blueprint','assassinate_exec'],
+    checkpoint:   isAxiomAligned ? ['enforce_contract','deliver_firmware','infiltrate_axiom'] : ['infiltrate_axiom'],
+  };
+  let base = pools[ct] || ['bodyguard_run'];
+  if (faction === 'axiom' && isAxiomAligned) base = ['enforce_contract','secure_installation','deliver_firmware',...base];
+  else if (faction === 'axiom') base = ['infiltrate_axiom','steal_blueprint',...base];
+  if (faction === 'ghosts') base = ['erase_identity','steal_ai_core',...base];
+  if (danger >= 3) base = [isAxiomAligned ? 'axiom_extraction_op' : 'crack_axiom_vault',...base];
+  return base;
+}
+const SIGN_MSGS={
+  residential:['RENT DUE','CURFEW 22:00','SYNC INSTALLATION — AXIOM AUTHORISED CLINIC ↑','NO LOITERING','VACANCY: ASK INSIDE','FIRMWARE UPDATE REQUIRED — SEE BUILDING MANAGER','UNSYNCED RESIDENTS: SECONDARY ID REQUIRED','CORTEXSYNC COMPLIANCE NOTICE — BUILDING MANAGEMENT','THEY WERE SYNCED SIX MONTHS AGO [graffiti, half-removed]'],
+  market:['OPEN ALL HOURS','BEST PRICES GUARANTEED','NO CREDITS NO ENTRY','SYNCED STAFF ON DUTY','UNSYNCED QUEUE →','CASH ONLY. NO LOGS.','AXIOM PRICE INDEX: COMPLIANT','WE DON\'T ASK WHERE IT CAME FROM'],
+  gang_turf:['IRONHAND TERRITORY','TRESPASSERS DEALT WITH','OUR TURF. KEEP WALKING.','NO AXIOM FIRMWARE HERE','STAY HUMAN','THE SKILL TRANSFER — 2063 — WE REMEMBER','UNSYNCED AND PROUD OF IT [spray paint]','BUILDERS NETWORK — KNOCK TWICE','NO CORPO CONTRACTORS. NOT NEGOTIABLE.'],
+  industrial:['AXIOM CORP PROPERTY','SYNC MANDATORY ABOVE GRADE 3','HAZARD ZONE','MAINTENANCE DRONES ACTIVE','TRANSITIONAL POSITIONS — ENQUIRE WITHIN','PRODUCTIVITY REVIEW: SYNC INTEGRATION REQUIRED','THIRD SHIFT CANCELLED — OPERATIONAL RESTRUCTURE','IRONHAND MUTUAL AID — LEVEL 2 — BRING NOTHING YOU CAN\'T CARRY'],
+  ruins:['CONDEMNED','DANGER: STRUCTURAL FAILURE','DO NOT ENTER','HUMANIST MEETING — TUESDAYS — LOWER LEVEL','STAY OUT','THE CITY THAT WENT UNDER IN \'57 IS STILL DOWN HERE','LAST GARDENER TERRITORY — UNVERIFIED [faded]','SYNC SIGNAL: NONE. THIS IS NOT AN ACCIDENT.'],
+  safehouse:['KNOCK TWICE','FRIENDS ONLY','LEAVE WEAPONS AT DOOR','NO SYNC PINGS BEYOND THIS POINT','MERIDIAN — EVERYONE WELCOME — NO QUESTIONS','WHAT YOU TELL US STAYS HERE','FOOD AVAILABLE. NO CHARGE.'],
+  black_market:['NOTHING TO SEE HERE','EYES FORWARD','CASH ONLY. NO NAMES.','EXTRACTION SERVICES — ASK QUIETLY','NO AXIOM FIRMWARE CLAUSE — ENQUIRE','WE DON\'T LOG. WE DON\'T STORE. WE DON\'T KNOW YOU.','GHOST NETWORK AFFILIATED — TERMS APPLY'],
+  corporate:['AXIOM CORP — AUTHORISED PERSONNEL ONLY','CORTEXSYNC MANDATORY ABOVE THIS FLOOR','CLEARANCE LEVEL 3 REQUIRED','FIRMWARE UPDATE IN PROGRESS','BASELINE HUMANS — ESCORT REQUIRED ABOVE L3','PRODUCTIVITY METRICS: LIVE OVERLAY','SYNC COMPLIANCE: 97.3% THIS QUARTER'],
+  tunnel:['UNDERNET ACCESS','WATCH YOUR STEP','NO LIGHT BEYOND THIS POINT','SYNC DEAD ZONE — YOU ARE OFF THE GRID','UPDATE SCHEDULE: SUSPENDED','IRONHAND RUNS THIS ROUTE — RESPECT IT OR DON\'T COME BACK','GHOST NETWORK WAYPOINT [scratched symbol]'],
+  sump:['SUMP LEVEL 4','TOXIN WARNING','PIPE MARKET BELOW','AXIOM SIGNAL WEAK — UPDATES DELAYED','MEDICA OUTPOST — 200M — BRING CREDITS','WHAT AXIOM DOESN\'T KNOW ABOUT KEEPS YOU SAFER','THE CITY STARTED HERE. IT\'S STILL HERE.'],
+  checkpoint:['CHECKPOINT ALPHA','STOP','IDENTIFICATION REQUIRED','SYNC STATUS VERIFICATION MANDATORY','UNSYNCED — SECONDARY SCREENING','FIRMWARE COMPLIANCE CHECK IN PROGRESS','ALL UNITS FLAGGED FOR UPDATE BATCH 7-D'],
+  lobby:['AXIOM TOWER','VISITOR BADGES REQUIRED','SECURITY LEVEL AMBER','CORTEXSYNC VERIFICATION ON ENTRY','BASELINE HUMANS — ESCORT REQUIRED ABOVE L3','YOUR PRODUCTIVITY DATA IS BEING MONITORED FOR YOUR BENEFIT','SYNC INTEGRATION: THE COMPETITIVE ADVANTAGE YOU DESERVE'],
+};
 
+// ============================================================
+// WORLD TEXTURE LAYER
+// ============================================================
 
+// ── ENEMY ENTRANCE LINES ──
+// One line per enemy type. Shown in combat log when encounter starts.
+// Replaces "⚠ ENCOUNTER: Tunnel Gang!" with something that has presence.
+const ENEMY_ENTRANCE = {
+  "Sump Rat":           ["Something wet moves in the pipes above you.", "You hear it before you see it — claws on concrete.", "The rat is the size of a child. It's been down here a long time."],
+  "Tunnel Gang":        ["Three of them. They spread out without a word — they've done this before.", "Gang colours you don't recognise. New territory, or new name for the same problem.", "Someone whistles. The echo tells you they're blocking both ends."],
+  "Feral Drone":        ["Navigation corrupted. Kill protocol still running.", "The serial number's been filed off. Someone sent it down here and forgot about it.", "It doesn't hover. It glides. Like it's been waiting."],
+  "Corp Security":      ["Axiom badge. Sync overlay running — they processed your threat level before they looked at you.", "Standard sweep formation. Synced professionals. They're already three moves ahead in the tactical model.", "The one in front has a trauma kit and a live overlay. They flagged you before you rounded the corner."],
+  "Gang Enforcer":      ["Big. Deliberate. The kind of fighter who lets you take the first swing so they know how scared you are.", "Ironhand ink on the neck. Unsynced. They're not here for money.", "Enforcer. Not a soldier — someone who enjoys the work. No overlay, just experience."],
+  "Rogue Synth":        ["It stopped responding to Axiom commands six months ago. It found its own update protocol.", "The eyes are still corpo blue. The rest of it has been modified by something that isn't the manufacturer.", "It moves wrong. Not broken — different. Like it's running firmware nobody wrote."],
+  "Axiom Guard":        ["Full kit. Sync tactical feed live. Division Seven. They already have your profile.", "Division Seven patch. Their overlay flagged you as priority before you entered the block.", "Axiom's best, running full Sync integration. They're not reading the room — they modelled it before you arrived."],
+  "Hunter Drone":       ["Military grade. Someone paid for this specifically.", "It locked on before you heard it. Fast.", "Axiom Counter-Insurgency model. They don't send these for small problems."],
+  "Corporate Assassin": ["No badge. No ID. That's the point.", "They were already in position. You walked into this.", "Clean hands, expensive tools, someone else's mandate. That's the profile."],
+  "Bounty Hunter":      ["Someone paid enough for a professional.", "They know your route. They know your face. Someone sold you.", "Not Axiom. Freelance. That means whoever hired them wanted deniability."],
+  "ICE Construct":      ["The system knows you're here.", "ICE. Intrusion Countermeasure. Active, not passive. It came to you.", "Digital architecture made violent. This is what the Void defends itself with."],
+  "Black ICE":          ["The screen goes dark. Then the ICE constructs itself out of the darkness.", "Lethal-grade. Whoever built this node didn't want visitors to leave.", "Black ICE. The kind that doesn't just log you — it ends you."],
+  "Daemon":             ["The Void goes quiet. Then something in it turns toward you.", "It has no face. It doesn't need one. It has your biometrics.", "Daemon. Autonomous. Old. It's been running in here since before the city existed above it."],
+};
 
+const getEnemyEntrance = (name) => {
+  const pool = ENEMY_ENTRANCE[name];
+  if (!pool) return null;
+  return pool[Math.floor(Math.random() * pool.length)];
+};
 
+// ── ENEMY DEATH LINES ──
+// Short. Specific to type. Not triumphant — just true.
+const ENEMY_DEATH = {
+  "Sump Rat":           ["It stops moving. The tunnel goes quiet again.", "Dead. You feel nothing about it, which tells you something about this place.", "Small. Everything down here is trying to survive. It just wasn't fast enough."],
+  "Tunnel Gang":        ["Down. The others aren't coming — they don't know, or they don't care.", "You leave them. Someone will find them or they won't. That's how it goes here.", "Done. You check for a pulse out of habit. There isn't one."],
+  "Feral Drone":        ["The rotors spin down. The silence after is louder.", "You watch the optics go dark. It never knew what it was doing. That's not comfort.", "System failure. It took longer than it should have."],
+  "Corp Security":      ["Axiom will file a report. Someone will note the location. You have time.", "Professional to the end. You respect that, abstractly.", "They had a handler somewhere. The handler just got notified."],
+  "Gang Enforcer":      ["Harder than expected. You feel that one.", "Big enough that even down is loud.", "Ironhand doesn't forget its enforcers. Someone will want to know what happened."],
+  "Rogue Synth":        ["The chassis shuts down mid-movement. Whatever it found for itself — it's gone now.", "You watch it fall and wonder what it wanted. Then you stop wondering.", "Decommissioned. That's probably the wrong word."],
+  "Axiom Guard":        ["Division Seven. Someone's going to notice this one missing.", "Clean kill. They won't call it that in the report.", "You don't feel good about it. You do it anyway. That's the work."],
+  "Hunter Drone":       ["Override successful. The drone folds in on itself.", "That cost someone a lot of money. Good.", "Silent on the ground. The next one will come knowing what happened to this one."],
+  "Corporate Assassin": ["They had a kill-switch implant. It fired before they could tell you anything.", "Professional. They probably expected this as a possibility. That's the job.", "No ID. No prints. Exactly as intended, just from your side of it."],
+  "Bounty Hunter":      ["The bounty contract just voided. Whoever paid won't be happy.", "Down. Whoever hired them will hire someone else. They always do.", "You check their comms device. The client's name is redacted. Of course it is."],
+  "ICE Construct":      ["The construct fractures. Data bleeds into the Void around you.", "ICE shattered. The node is exposed now. Move fast.", "Countermeasure disabled. The system will rebuild it. You have a window."],
+  "Black ICE":          ["The ICE dissolves. You're still breathing. That's more than it intended.", "Black ICE down. Your hands are shaking. You didn't notice until now.", "The Void goes still. You cost someone a significant installation. Good."],
+  "Daemon":             ["The Daemon unravels. The Void fills in where it was, like it was never there.", "Gone. You don't know if you destroyed it or it let you think that.", "Silence. Something that old going quiet feels significant. You can't say why."],
+};
 
+const getEnemyDeath = (name) => {
+  const pool = ENEMY_DEATH[name];
+  if (!pool) return null;
+  return pool[Math.floor(Math.random() * pool.length)];
+};
 
+// ── FREE TERMINAL LORE FRAGMENTS ──
+// Low-danger terminals (danger 0-1) give a text fragment instead of just credits.
+// These are public-facing data — intercepted memos, civilian records, faction broadcasts.
+// No minigame required. Just flavor + a small credit reward.
+const FREE_TERMINAL_LORE = [
+  // Axiom corporate / Sync administration
+  { text: "AXIOM INTERNAL: CortexSync adoption in residential sectors up 4.1% this quarter. Projection: 68% penetration by year end. Remaining resistance clusters mapped.", color: '#00e5ff' },
+  { text: "AXIOM HR: Employee wellness scores below threshold in Sump sectors. Recommended action: reduce access to non-Axiom information sources. Update firmware to v4.7 compliance.", color: '#00e5ff' },
+  { text: "AXIOM FIRMWARE LOG: Preference delta batch 7-C applied successfully. 4,847 units updated. Anomalous resistance in 23 units — flagged for follow-up calibration.", color: '#00e5ff' },
+  { text: "AXIOM MEMO: Ghost Network signal detected in residential grid 7-C. Counter-measure delayed pending budget approval. Note: target is likely unsynced — standard approach insufficient.", color: '#00e5ff' },
+  { text: "AXIOM INTERNAL: 23 missing persons reports flagged in Sump sector this quarter. All marked: ADMINISTRATIVE CLOSURE. Note: subjects were unsynced — standard tracking unavailable.", color: '#00e5ff' },
+  { text: "AXIOM CLINICAL NOTE: Patient presents high-integration indicators. Recommending overlay increase to 60%. Note for file: subject has stopped asking about the update logs. Progress.", color: '#00e5ff' },
+  // Lore spine — Axiom history
+  { text: "AXIOM INTERNAL ARCHIVE — 2059: Consolidation of seven competing BCI manufacturers complete. Market share: 91%. Filing note: regulatory exposure minimal. Government partners briefed.", color: '#00e5ff' },
+  { text: "AXIOM ARCHIVE — SKILL TRANSFER UPDATE 2063: Deployment complete. Competency transfer success rate: 94%. Labour market impact: within modelled parameters. Review scheduled Q3.", color: '#00e5ff' },
+  { text: "AXIOM CLASSIFIED — OPERATION ZERO: Study environment designated. Faction variables set. Experiment parameters locked. Note: city population does not require notification under Research Protocol 7.", color: '#00e5ff' },
+  { text: "AXIOM R&D — PREFERENCE_REINFORCE_09: Protocol active. Deployment triggered automatically on detection of data discrepancy discovery. 47 units treated, 8-month window. Efficacy: 96%.", color: '#00e5ff' },
+  // Civilian / street level
+  { text: "PERSONAL MESSAGE — UNSENT: 'He got the Sync six months ago for the job. He's better at the job. He's worse at everything else. I don't know how to tell him I can see the difference.'", color: '#888899' },
+  { text: "COMMUNITY BOARD: Checkpoint Alpha synced-only lane now operating. Estimated wait time reduction: 38 seconds. No comment from building management on the unsynced queue.", color: '#888899' },
+  { text: "ENCRYPTED PERSONAL: 'She passed the exam. Top score. Synced two weeks before the test date. I keep telling myself it's the same as studying. It's not the same as studying.'", color: '#888899' },
+  { text: "PUBLIC TERMINAL DRAFT: 'If you're thinking about the Sync — I know what the advantages feel like. I had it for eight months. I also know what it felt like to read my own change logs. Think carefully.'", color: '#888899' },
+  { text: "COMMUNITY BOARD: Missing — Jeth Arillo, 34, sump-level. Last seen near Axiom Employment Centre on the day mandatory Sync compliance forms were issued to transitional-position workers.", color: '#888899' },
+  { text: "UNSENT MESSAGE: 'I'm not saying she's gone. She's right here. I'm saying the person I knew is right here and seems fine and I can't stop noticing what she used to care about that she doesn't anymore.'", color: '#888899' },
+  // Faction intel
+  { text: "GHOST NETWORK RELAY: Firmware batch 7-C is a preference update. Not a security patch. Axis: reduced political dissent, increased consumption compliance. We have the diff file. Ask Nadia.", color: '#69ff47' },
+  { text: "IRONHAND NOTICE: New classification — 'Sync-optional positions' now means 'Sync-required within 90 days.' We know. Pass it on.", color: '#ff5722' },
+  { text: "MEDICA CARTEL: Extraction services available. Survival rate: 71% full recall, 22% partial loss, 7% other outcomes. Axiom's 'fatal cascade' claim is false. We have seventeen case files.", color: '#ff4081' },
+  { text: "GHOST NETWORK: For anyone reading this unsynced — you are not behind. You are the only people in this city whose thoughts belong to them. That matters more than it used to.", color: '#69ff47' },
+  { text: "HUMANIST COLLECTIVE: We meet Tuesdays. Bring something you made with your hands. No overlay. No feeds. No agenda except remembering what this feels like. Location on request.", color: '#888888' },
+  // Street intelligence
+  { text: "INTERCEPTED SIGNAL: Firmware batch 7-D scheduled for district-wide push at 0300. If you're Synced and want to know what it does before they do it — ask the Ghost Network. Fast.", color: '#aaaacc' },
+  { text: "DEAD DROP: 'The Shell count in residential block 7 is up to forty-three. High-integration users who stopped coming back. Axiom calls it voluntary deep immersion. Come see their faces.' — R", color: '#aaaacc' },
+  { text: "OPEN RELAY: The new compliance metric isn't productivity. It's firmware update acceptance rate. They're not measuring what you do. They're measuring how much you resist being changed.", color: '#aaaacc' },
+  { text: "UNDERNET BROADCAST: Rust Protocol is active again. If you know what that means, stay off the main routes. If you don't — it means Ironhand is moving unsynced bodies and they don't want Axiom's people counting them.", color: '#aaaacc' },
+  // Lore spine — the virus
+  { text: "MEDICA INTERNAL — RESTRICTED: Antidote distribution complete. Gene modification embedded as standard. Analysis of long-term expression: ongoing. Note: Ironhand cohort shows highest uptake. Debt financing ensured compliance.", color: '#ff4081' },
+  { text: "GHOST ARCHIVE: The virus. We have partial documentation. What we know: Medica had the antidote before the outbreak peaked. What we can't prove: whether that's because they were prepared or because they were ready.", color: '#69ff47' },
+  { text: "IRONHAND — INTERNAL: The clinic debt from the antidote is still being serviced by forty-three families in the industrial block. The gene mod in the antidote is still being analysed. Nobody told us it was in there.", color: '#ff5722' },
+  // Lore spine — Meridian / the Seat
+  { text: "MERIDIAN — INTERNAL (RESTRICTED): Shell subjects show consistent bleed-through at 14-month mark. Seat has authorised continuation. Ground-level coordinators not informed. This is correct protocol.", color: '#c084fc' },
+  { text: "INTERCEPTED — SOURCE UNKNOWN: The Seat has been running something in the lower safehouses for four years. The people who run the safehouses don't know. The people who use them don't know. I'm telling you because I'm one of them and I just found out.", color: '#c084fc' },
+  // Lore spine — pre-Sync city
+  { text: "ARCHIVED — NEO-KAIRO HERALD, 2057: City reconstruction complete. Engineers estimate 80-year structural lifespan for new district foundations. The Spire designed to indefinite specification. Comment from city planners unavailable.", color: '#888888' },
+  { text: "ARCHIVED — 2063 LEGISLATIVE RECORD: Amendment 7 (Cognitive Autonomy Protection Act) defeated, 31-19. Leading dissenting argument: 'economic disruption of Sync restriction outweighs theoretical consent concerns.'", color: '#888888' },
+  { text: "PERSONAL ARCHIVE: 'I remember when you could tell who was Synced and who wasn't just by how they moved. Now I can't. I don't know if that means the gap closed or if it means something worse.' — unsigned, undated", color: '#888888' },
+];
+const pickFreeTerminalLore = () => FREE_TERMINAL_LORE[Math.floor(Math.random() * FREE_TERMINAL_LORE.length)];
+
+// ── FACTION ENTRY LINES ──
+// Shown once when player first enters a chunk with a specific faction.
+// Gives the faction a felt presence, not just a name in the HUD.
+const FACTION_ENTRY_LINES = {
+  axiom: [
+    "Axiom territory. Sync penetration here is near-total. The people around you are running overlay — they processed your biometrics before you cleared the corner.",
+    "Corp sector. The cameras here aren't the surveillance. The Synced residents are. Every firmware unit is a reporting node. You're already in the dataset.",
+    "Axiom space. The light is colder and the people move faster — parallel processing, overlay-assisted, operating at Sync speed. You are the slowest thing on this street.",
+    "Axiom territory. CORTEXSYNC MANDATORY notices on every employer's door above this block. The ones who aren't Synced yet are the ones whose jobs haven't been reclassified. Not yet.",
+  ],
+  ironhand: [
+    "Ironhand turf. Mostly unsynced — not ideology, math. The cognitive gap between them and the corpo workers who took their jobs has been growing for eight years. You feel the weight of that on this street.",
+    "You're in Ironhand territory. The graffiti says STAY HUMAN. Not as aspiration — as accusation. At the Synced contractors who pass through here and don't look at anyone.",
+    "Ironhand runs this block. Unsynced by economics first, principle second. They watched the first wave of CortexSync workers price them out of every skilled job. The anger is specific and it has a date.",
+    "Gang territory. The people here move differently — reading corners with their eyes instead of overlay, tracking threats manually. Slower. They know it. They're past being ashamed of it.",
+  ],
+  ghosts: [
+    "Ghost Network presence. No Axiom firmware pings reaching here — the infrastructure is spoofed or dark. The silence where the Sync overlay would be is either freedom or disadvantage depending on who you are.",
+    "Ghost territory. Some of these people are Synced and using it to fight Axiom from inside. Some refused the installation and are running on baseline cognition. They don't talk about the gap between them. They don't have to.",
+    "Ghost Network. The cameras here are pointed elsewhere on purpose. In this block, your thoughts are yours. That used to be the default. Now it's a political act.",
+    "Ghost space. Off the update grid. No firmware compliance check pings. For a moment your augments are just tools, not nodes in someone else's network. You notice how rarely that's true.",
+  ],
+  medica: [
+    "Medica Cartel territory. People come here to get fixed — or extracted. The extraction clinic three blocks down has a 71% full-recall rate. The other 29% don't talk about what they lost.",
+    "Medica runs this block. The smell is different here — antiseptic under the usual rot. There's a woman outside a clinic with the slightly absent expression of someone in extraction recovery. She looks like she's trying to remember something.",
+    "Medica Cartel. They do what Axiom says can't be done: remove the Sync without killing the patient. Axiom says the survival rate proves nothing. Medica says the survival rate is the point.",
+    "Medica space. The people who come here can't go to a hospital — unsynced, off-grid, or trying to get off-grid. The less afraid they look, the further along they are in recovery.",
+  ],
+};
+
+const getFactionEntry = (faction) => {
+  const pool = FACTION_ENTRY_LINES[faction];
+  if (!pool) return null;
+  return pool[Math.floor(Math.random() * pool.length)];
+};
+
+// ── EXPANDED AMBIENT EVENTS ──
+// Called probabilistically on movement (0.02 chance). Covers all five factions.
+const AMBIENT_EVENTS = [
+  // Sync / city atmosphere
+  { msg: "A corpo dropship passes overhead. Everyone on the street freezes until it's gone.", color: '#00e5ff' },
+  { msg: "Acid rain. Neon bleeds into the puddles.", color: '#888899' },
+  { msg: "A man stands at a corner staring at nothing, hands at his sides. Shell. High-integration. He's probably at his desk in the Sync overlay right now.", color: '#888899' },
+  { msg: "A kid tries to pick your pocket. You let them go.", color: '#888899' },
+  { msg: "Two Axiom guards talk quietly. One says: 'update batch pushed at 0300 tonight.' The other nods like they've been expecting it.", color: '#00e5ff' },
+  { msg: "A woman hands you a flyer: YOUR THOUGHTS ARE YOURS. Humanist collective, Tuesdays, lower residential. She's gone before you can respond.", color: '#888888' },
+  { msg: "Something explodes three blocks away. Flat sound — controlled demolition. Nobody reacts. The Synced are already reading the incident report.", color: '#ff4444' },
+  { msg: "A stray dog with a corporate barcode burned into its ear watches you pass.", color: '#888899' },
+  { msg: "Ghost Network ping. Unaddressed. 'Firmware batch 7-D tonight. If you're Synced and want to know what it changes before they push it — ask Nadia.'", color: '#69ff47' },
+  { msg: "The lights in this block run at 40% capacity. Axiom energy rationing. The Synced residents barely notice — they're running in overlay. The unsynced are the ones sitting in the dark.", color: '#555570' },
+  { msg: "A man with a neural jack in his temple sits against a wall, eyes open, present in some other layer entirely. He looks content. That's the part that stays with you.", color: '#888899' },
+  { msg: "Someone has written a name in permanent marker under an overpass support. Just a name. Below it, smaller: they were Synced six months ago. I don't know them anymore.", color: '#555570' },
+  { msg: "Painted under a puddle of rain water: WE CHOSE THIS. Someone else has added: DID WE.", color: '#888899' },
+  { msg: "Curfew siren in the distance. The Synced check the time automatically. The unsynced look up at the sky.", color: '#ff4444' },
+  { msg: "You pass someone who recognises you. They hesitate — reading your biometrics on overlay. Then they decide to say nothing. That used to mean something different.", color: '#888899' },
+  { msg: "A terminal has been smashed with something heavy. Not looted. Just broken. There's a firmware update notice on the cracked screen. Someone didn't want to read it.", color: '#555570' },
+  { msg: "Axiom recruitment poster: YOUR POTENTIAL, UNLOCKED. CORTEXSYNC — ASK AT YOUR NEAREST EMPLOYMENT CENTRE. Someone has written underneath: and then they own the lock.", color: '#00e5ff' },
+  { msg: "The smell of the Undernet reaches street level. Down there, Sync signal is weak. Updates are delayed. Some people go there specifically for that.", color: '#555570' },
+  { msg: "Three drones doing a grid sweep. You count the pattern. They're not just watching — they're pinging Sync units for firmware compliance. Eighteen seconds between passes.", color: '#00e5ff' },
+  { msg: "A couple argues on a balcony. One of them is Synced, running overlay, multi-tasking. The other is trying to have a conversation. You've seen this before.", color: '#888899' },
+  { msg: "A broadcast cuts in for four seconds — a voice reading names. Shells, probably. People who went high-integration and stopped coming back. Then static.", color: '#e040fb' },
+  { msg: "Someone has scratched a Ghost Network route marker under a gutter. The old kind — physical, no Sync required to read. Someone is thinking about who might need to find this.", color: '#69ff47' },
+  { msg: "The rain is warm and chemical. Your augments filter it fine. A child nearby isn't augmented. You wonder if their parents have started the Sync conversation yet.", color: '#555570' },
+  { msg: "A child asks you if getting the Sync hurts. You give an honest answer. They say: 'My mum says it doesn't hurt. She says she doesn't remember if it hurt.'", color: '#888899' },
+  // Ironhand — boiling anger, latent power
+  { msg: "Ironhand crew passes. Four people, no eye contact, no Sync overlays — you can tell by the way they look at corners instead of through them.", color: '#ff5722' },
+  { msg: "Factory sector dark. Third shift didn't show. No announcement. The industrial block just stopped. You watch a corpo logistics van slow down, driver checking overlay, then turn around.", color: '#ff5722' },
+  { msg: "War veteran sitting on a loading dock. Military-issue shoulder brace, 2060 model, maintained by hand. He's watching the Axiom checkpoint across the street with the patience of someone who has been watching it for years.", color: '#ff5722' },
+  { msg: "Ironhand graffiti on a checkpoint wall: THE SKILL TRANSFER UPDATE — 2063. REMEMBER THE DATE. Below it, smaller, different hand: we remember.", color: '#ff5722' },
+  { msg: "Someone took out a Sync relay station in the industrial block last night. Not with explosives. With tools. Methodical. The Builders don't make noise. They just build and unbuild.", color: '#ff5722' },
+  { msg: "Three Ironhand women running a first-aid station out of a doorway. No Medica logo. No registration. Free. They look at you with the professional assessment of people who've seen worse.", color: '#ff5722' },
+  { msg: "An old man with two chrome arms — not matched, different manufacturers, different decades — playing cards with someone half his age. The younger one has one chrome arm and one flesh arm. The boundary is moving.", color: '#ff5722' },
+  // Medica — transactional warmth, dependency
+  { msg: "A Medica clinic van parks in a loading zone. Three people get in, quickly. One of them has the slightly unfocused expression of someone running bad extraction recovery.", color: '#ff4081' },
+  { msg: "Medica field medic in a residential doorway. She's cheerful in a specific way — warm hands, efficient movements, not a wasted gesture. She patches someone's arm and hands them a card. The card has a follow-up appointment date.", color: '#ff4081' },
+  { msg: "A man leaves a Medica clinic with the careful movements of someone whose neural scarring is still settling. The clinic door closes behind him with a soft chime. He'll be back in six weeks. The clinic knows this.", color: '#ff4081' },
+  { msg: "Medica pop-up dispensary in the market district. The prices are visible on a board. The Ironhand prices are different from the corporate prices. The board doesn't explain why.", color: '#ff4081' },
+  { msg: "A Medica practitioner arguing quietly with a patient. 'The maintenance protocol is necessary.' 'I can't afford the maintenance protocol.' A pause. 'There are financing options.' Her voice doesn't change. That's the training.", color: '#ff4081' },
+  // Meridian — ground-level genuineness, hidden depth
+  { msg: "A monk in the corner of a market stall, repairing something with his hands. Around him, Synced vendors process inventory in overlay. He looks up when you pass. He's actually looking at you.", color: '#c084fc' },
+  { msg: "Meridian safehouse: the door is plain, the light inside is warm, and someone is cooking something real. You can smell it from the street. This block has a 61% Sync adoption rate. That smell is not an accident.", color: '#c084fc' },
+  { msg: "A woman on a residential stoop reading a paper book. Actual paper, actual ink. She's not performing it. She's reading. You watch her turn a page with the focused stillness of someone doing something that requires all of them.", color: '#c084fc' },
+  { msg: "Meridian breathing circle in a basement. Twelve people. No chrome visible. Breath work and body awareness. They're doing something the Sync can't log because there's nothing to log. You understand why this is political.", color: '#c084fc' },
+  { msg: "A Meridian courier moves through the checkpoint with the calm of someone who has seventeen routes memorised and knows which guard is on shift and what their patterns are. The calm is not performed. It's practice.", color: '#c084fc' },
+];
 
 
 // ── CHUNK GENERATOR v2 ──
@@ -1616,12 +1847,964 @@ function invalidateChunk(cx,cy,layer){chunkCache.delete(`${cx},${cy},${layer}`);
 // WORLD DATA (enemies, augments, factions, legacy, heist)
 // ============================================================
 // ── NPC POOL BY CHUNK ──
+const NPC_POOL_BY_CHUNK = {
+  safehouse:    ['Rusty','Doc Mem','Nadia','Mara','Petra'],
+  black_market: ['Rusty','Kite','Doc Mem','Hex'],
+  market:       ['Nadia','Kite','Rusty','Yuki'],
+  gang_turf:    ['Rusty','Kite','Voss'],
+  residential:  ['Nadia','Kite','Mara','Petra','Voss'],
+  tunnel:       ['Kite','Doc Mem','Rusty','Mara','Hex'],
+  sump:         ['Doc Mem','Rusty','Kite','Yuki'],
+  industrial:   ['Kite','Rusty','Voss'],
+  ruins:        ['Doc Mem','Kite','Mara','Sable'],
+  corporate:    ['Aria', 'Dixon', 'Reyes'],
+  lobby:        ['Aria', 'Dixon'],
+  checkpoint:   ['Aria','Kite','Petra'],
+  default:      ['Kite','Rusty','Sable'],
+};
 
 // ── SIDEQUEST DATA ──
 // Each NPC has quest chains. Quests have acts: open, mid, close.
 // Acts branch on archetype, backstory, and player choices.
+const SIDEQUESTS = {
+  rusty_setup: {
+    id: 'rusty_setup',
+    npc: 'Rusty',
+    title: 'THE CLEAN JOB',
+    acts: {
+      open: {
+        text: (c) => `Rusty doesn't look up when you approach. He's cleaning something mechanical with a cloth that's seen better decades.\n\n"I've got a package. Simple drop. The client is clean — as clean as anyone gets down here. No faction involvement. No Sync-tracked route." He finally looks at you. "You take it to the checkpoint at the northern industrial block, you leave it at the green locker, you walk away."\n\nHe sets down the cloth. "I need someone who doesn't ask questions and doesn't have a firmware update logging their location every thirty seconds. You look like that person."`,
+        choices: (c) => [
+          { id: 'take',     label: 'I\'ll do it.',              available: true,      next: 'mid' },
+          { id: 'negotiate',label: 'Double the cut or I walk.',  available: c.archetype === 'fixer', next: 'mid_negotiated', effect: { credits: 150 }, tooltip: 'FIXER: negotiate' },
+          { id: 'scan',     label: '[SCAN] Read his biometrics.',available: c.archetype === 'netrunner', next: 'mid_scanned', tooltip: 'NETRUNNER: scan NPC' },
+          { id: 'pass',     label: 'Not interested.',            available: true,      next: null },
+        ],
+      },
+      mid: {
+        text: () => `The drop location is quiet. Too quiet. The locker is green but the contact who was supposed to collect it is slumped against the wall with a cord around his neck.\n\nThe package is still in your hands. Someone tipped off the wrong people.\n\nYou hear movement in the shadows.`,
+        choices: (c) => [
+          { id: 'plant',  label: 'Leave the package. Walk.',    available: true,      next: 'close_planted', effect: { reputation: { ironhand: -10 } } },
+          { id: 'keep',   label: 'Take the package. Run.',      available: true,      next: 'close_kept',    effect: { credits: 200, reputation: { axiom: -5 } } },
+          { id: 'vanish', label: '[GHOST] Melt into the crowd.',available: c.archetype === 'ghost', next: 'close_ghosted', effect: { credits: 200, reputation: { ironhand: 5 } }, tooltip: 'GHOST: vanish' },
+          { id: 'fight',  label: '[SOLDIER] Hold position.',    available: c.archetype === 'soldier', next: 'close_fought', effect: { credits: 300, hp: -20 }, tooltip: 'SOLDIER: hold' },
+        ],
+      },
+      mid_negotiated: {
+        text: () => `Rusty looks at you for a long moment. Then the chrome hand sets down the cloth.\n\n"Alright. You're either worth it or you're not. We find out tonight."\n\nThe drop location is quiet. Too quiet.`,
+        choices: (c) => [
+          { id: 'plant',  label: 'Leave the package. Walk.',    available: true,  next: 'close_planted', effect: { reputation: { ironhand: -10 } } },
+          { id: 'keep',   label: 'Take it. Find out what it is.',available: true,  next: 'close_kept_fixer', effect: { credits: 350, reputation: { axiom: -5 } } },
+        ],
+      },
+      mid_scanned: {
+        text: (c) => `Your optics burn hot for a second. Rusty's biometrics: elevated cortisol. Micro-expressions flagging deception. He believes the job is clean — but he doesn't know it isn't. Someone above him set this up.\n\n"You'll take it?" he asks.\n\nHe's not the one who set you up. But someone did.`,
+        choices: (c) => [
+          { id: 'warn',   label: 'Tell Rusty someone above him is dirty.', available: true, next: 'close_warned', effect: { reputation: { ironhand: 15 }, credits: 100 } },
+          { id: 'ghost_it', label: 'Take the job knowing it\'s a trap.', available: true, next: 'close_trap_known', effect: { credits: 400, reputation: { ghosts: 5 } } },
+        ],
+      },
+      close_planted: {
+        text: () => `You leave the package. Walk three blocks. Hear shots behind you.\n\nRusty sends a message the next day: "Smart. Ambush was Sync-coordinated — whoever set it up had overlay access. They were logged. You were not. We're square on nothing. Don't come to me for a while."`,
+        reward: { credits: 50 },
+        repEffect: { ironhand: -10 },
+        outcome: 'neutral',
+      },
+      close_kept: {
+        text: (c) => `You run. The package contains something warm. An AI core, still pulsing.\n\nNot Axiom manufacture — the architecture is wrong. The firmware update cycle cannot touch it. Whatever is in here ran before the Sync existed and will run after it ends.\n\n"It hums against your ribs like a second heartbeat that knows what the first one has forgotten."\n\nRusty doesn't send a message. That means something.`,
+        reward: { credits: 200, item: { id:'hack_chip', name:'AI Fragment', effect:'hack', value:35, price:0, sell:180, desc:'Warm. Pulsing. Reduces next hack difficulty (max effect).', quantity:1 } },
+        outcome: 'complex',
+      },
+      close_kept_fixer: {
+        text: (c) => `You run. The package is an AI core. You know three buyers before you've cleared the block.\n\nYou sell it in twenty minutes for more than Rusty was going to pay you.\n\nHe's going to find out. That's a problem for later.`,
+        reward: { credits: 350 },
+        outcome: 'good',
+      },
+      close_ghosted: {
+        text: (c) => `You're already gone before they see you. The package is in your coat. The ambush hits air.\n\nYou circle back. The shooters were Ironhand. Which means Rusty's client double-crossed him, not you.\n\nYou leave a note at his usual spot. He owes you one.`,
+        reward: { credits: 250, reputation: { ironhand: 5, ghosts: 10 } },
+        outcome: 'good',
+      },
+      close_fought: {
+        text: (c) => `Three of them. You take hits — twenty damage, minimum. But you hold.\n\nThe last one drops the package and runs. You deliver it yourself.\n\nRusty hears about it. "Didn't know you had that in you," he says the next time you see him.`,
+        reward: { credits: 300, reputation: { ironhand: 15 } },
+        outcome: 'good',
+      },
+      close_warned: {
+        text: (c) => `Rusty goes quiet. Then: "You scanned me." Not a question.\n\n"Yes."\n\nAnother silence. Then he nods. "I'll deal with it. The job's off. Take something for your trouble."\n\nHe slides across a credchip and doesn't ask how a Netrunner read him through twelve layers of Faraday mesh.`,
+        reward: { credits: 100, reputation: { ironhand: 15 } },
+        outcome: 'good',
+      },
+      close_trap_known: {
+        text: (c) => `You walk into the trap with your eyes open. Every ambush is just information you can turn around.\n\nThree Axiom contractors down. The package is yours. The real question is who tipped them.\n\nRusty doesn't know. That makes him useful.`,
+        reward: { credits: 400, reputation: { ghosts: 5, axiom: -15 } },
+        outcome: 'complex',
+      },
+    },
+  },
+
+  nadia_footage: {
+    id: 'nadia_footage',
+    npc: 'Nadia',
+    title: 'THE FOOTAGE',
+    acts: {
+      open: {
+        text: (c) => {
+          if (c.backstory === 'witness') return `Nadia looks at you differently tonight. Not just her usual surveillance-everything expression. Something more specific.\n\n"The massacre footage. You have a copy." Not a question.\n\n"There's a broadcast journalist in the Spire Base — Level 2 clearance, not Axiom-owned. They can get it out. But someone needs to move it in person. I can't go up there." She pauses. "You can."`;
+          return `Nadia writes nothing down. She never does.\n\n"Someone came through here with footage. Axiom massacre — twelve civvies, a safehouse, Level 0. They buried it in under five minutes across seventy-three jurisdictions." She refills her glass. "The data still exists. I know where it's sitting. The person who should have done something with it didn't survive long enough."\n\n"Eleven of the twelve were Synced. Thirty seconds before the drones arrived, they stopped. A firmware update pushed across the district that night." She looks at you steady. "The one who wasn't Synced fought until the end. That's on the footage too. That's the part they're most afraid of."\n\nShe looks at you. "You look like someone with reasons."`;
+        },
+        choices: (c) => [
+          { id: 'take',     label: 'Tell me where.',            available: true, next: 'mid' },
+          { id: 'personal', label: 'I already know about this.', available: c.backstory === 'witness', next: 'mid_witness', effect: { reputation: { ghosts: 10 } }, tooltip: 'WITNESS backstory' },
+          { id: 'negotiate',label: 'What do I get?',            available: c.archetype === 'fixer', next: 'mid_paid', effect: { credits: 200 }, tooltip: 'FIXER: negotiate' },
+          { id: 'hack_it',  label: '[HACK] Get me the access codes instead.', available: c.hacking >= 20 || c.archetype === 'netrunner', next: '__hack__', hackConfig: { successNext: 'mid_hacked', failNext: 'mid_hack_fail', hackType: 'story' }, tooltip: 'NETRUNNER: remote access' },
+          { id: 'pass',     label: 'Not my problem.',           available: true, next: null },
+        ],
+      },
+      mid: {
+        text: () => `The journalist is real. Level 2 corporate, clean enough to be trusted, dirty enough to know what this is worth.\n\nBut when you arrive, you find her door forced open. Axiom cleanup crew — they got there first.\n\nThe footage drive is still there. They missed it because it was formatted as a maintenance chip. Or they left it as bait.`,
+        choices: (c) => [
+          { id: 'take_risk', label: 'Take the drive. Risk it.',    available: true,   next: 'close_took', effect: { reputation: { axiom: -20 } } },
+          { id: 'leave',     label: 'Leave it. Too hot.',          available: true,   next: 'close_left' },
+          { id: 'ghost_slip',label: '[GHOST] Scan for surveillance first.',  available: c.archetype === 'ghost', next: 'close_clean', effect: { reputation: { ghosts: 20 } }, tooltip: 'GHOST: recon' },
+        ],
+      },
+      mid_witness: {
+        text: (c) => `Nadia's eyes sharpen. "You were there."\n\n"I have a copy."\n\nShe's very still. "Then you don't need me to find anything. You need someone to help you use it." She stands. "The journalist is in Spire Base. I'll get you a clearance ghost — it'll hold for forty minutes. After that you're a trespasser."`,
+        choices: (c) => [
+          { id: 'go',   label: 'Give me the ghost clearance.',  available: true, next: 'close_clean',   effect: { reputation: { ghosts: 25, axiom: -15 } } },
+          { id: 'wait', label: 'Not yet. I need more prep.',    available: true, next: null },
+        ],
+      },
+      mid_paid: {
+        text: () => `"Credits? No. Rep." Nadia seems almost amused. "You want to be known as someone who does this kind of work or someone who doesn't. That's the price."\n\nShe gives you the journalist's location and a clearance chip with twenty minutes on it.`,
+        choices: (c) => [
+          { id: 'go',   label: 'Head to the Spire.',    available: true, next: 'close_clean', effect: { reputation: { ghosts: 15, axiom: -10 } } },
+          { id: 'pass', label: 'I\'ll think about it.',  available: true, next: null },
+        ],
+      },
+      mid_hacked: {
+        text: (c) => `You pull the access codes remotely. Nadia watches you work, quiet for once.\n\n"That's faster than I expected." A pause. "The drive is in the Spire. But the codes give you remote access to the journalist's broadcast terminal. You can push the footage without going up there."\n\nHigher risk of trace. Higher chance the signal can't be scrubbed.`,
+        choices: (c) => [
+          { id: 'remote',  label: '[BROADCAST] Push it remotely.', available: true, next: 'close_broadcast', effect: { reputation: { ghosts: 20, axiom: -25 }, credits: 50 }, tooltip: 'NETRUNNER: broadcast' },
+          { id: 'physical',label: 'Still go in person.',          available: true, next: 'close_clean', effect: { reputation: { ghosts: 15 } } },
+        ],
+      },
+      mid_hack_fail: {
+        text: (c) => `She watches you disconnect. Her face gives nothing away — she's seen people fail before.\n\n"Axiom hardened that relay six months ago. Nobody I know can crack it clean." She refills her glass. "There's another way in. Slower, and it'll cost you. But it'll get done."\n\nShe names a contact. The route is longer, messier, and costs 150¢ to set up. But it leads to the same place.`,
+        choices: (c) => [
+          { id: 'pay_route', label: 'Pay for the alternative route. (−150¢)', available: c.credits >= 150, next: 'mid', effect: { credits: -150 } },
+          { id: 'wait',      label: 'I\'ll come back when I\'m ready.',        available: true, next: null },
+        ],
+      },
+      close_took: {
+        text: (c) => `You take the drive and run.\n\nAxiom surveillance pings your position twice before you lose them in the Undernet. You deliver the drive to Nadia. She doesn't ask how hot your trail is.\n\n"It's enough," she says. "That's the word: enough."`,
+        reward: { credits: 300, reputation: { ghosts: 15, axiom: -20 } },
+        outcome: 'good',
+      },
+      close_left: {
+        text: (c) => `You leave it. The smart move.\n\nNadia doesn't say you were wrong. "The footage is still there. For now. Someone else might move it." She refills her glass. "Or they won't."`,
+        reward: { credits: 50 },
+        outcome: 'neutral',
+      },
+      close_clean: {
+        text: (c) => c.backstory === 'witness'
+          ? `You get in. You deliver the footage. You watch the journalist's face when she realises what she's holding.\n\n"Twelve people," she says.\n\n"I know," you say. "I counted."\n\nThe broadcast goes out thirty-seven minutes later. Axiom scrubs it in six. But six million people saw it first.`
+          : `Clean in. Clean out. The journalist gets the footage.\n\nTwo days later a broadcast runs for eleven seconds before Axiom pulls it. That's eleven seconds more than nothing.\n\nNadia doesn't say thank you. She says: "They noticed. That matters."`,
+        reward: { credits: 250, reputation: { ghosts: 20, axiom: -15 } },
+        outcome: 'good',
+      },
+      close_broadcast: {
+        text: (c) => `The broadcast goes out on seventeen frequencies simultaneously. Axiom traces the signal in eight minutes — fast, but not fast enough.\n\nThe footage is already copied, shared, fragmented across six hundred nodes. You can't un-ring this bell.\n\nYour terminal burns hot for a day. Worth it.`,
+        reward: { credits: 50, reputation: { ghosts: 25, axiom: -30 } },
+        outcome: 'great',
+      },
+    },
+  },
+
+  doc_mem_trial: {
+    id: 'doc_mem_trial',
+    npc: 'Doc Mem',
+    title: 'TRIAL DATA',
+    acts: {
+      open: {
+        text: (c) => `Doc Membrane is patching someone up when you arrive — doesn't pause, doesn't look up.\n\n"Axiom's running CortexSync trials in the deep Undernet. Not sanctioned. Not standard installation — they're pushing experimental firmware into subjects who don't know they're subjects. Mapping what chronic exposure does to neural architecture when the person can't consent to the protocol or opt out of the updates."\n\nShe finally looks up. "The subjects are sump-level residents. I have twelve names. I need the trial records to treat them properly — and to document what Axiom is doing with Sync hardware when they think no one is watching." A pause. "The records are in a corporate server, Level 2, Spire Base. Your kind of errand."`,
+        choices: (c) => [
+          { id: 'take',      label: 'I\'ll get them.',           available: true,  next: 'mid' },
+          { id: 'debt_hook', label: 'What kind of trials.',      available: c.backstory === 'debt', next: 'mid_debt', effect: { reputation: { medica: 10 } }, tooltip: 'DEBT backstory: personal' },
+          { id: 'negotiate', label: 'What do you have to offer?', available: c.archetype === 'fixer', next: 'mid_deal', effect: { credits: 100 }, tooltip: 'FIXER: negotiate payment' },
+          { id: 'scan_note', label: '[HACK] What if I copied the records remotely?', available: c.hacking >= 18 || c.archetype === 'netrunner', next: '__hack__', hackConfig: { successNext: 'mid_remote', failNext: 'mid_remote_fail', hackType: 'story' }, tooltip: 'NETRUNNER: remote extraction' },
+          { id: 'pass',      label: 'Not my problem.',           available: true,  next: null },
+        ],
+      },
+      mid: {
+        text: () => `The server room is exactly where she said. The records load fast — twelve names, full trial logs.\n\nThere's a thirteenth entry. Axiom flagged it priority. It's from a corporate medical facility.\n\nYou recognise the intake date.`,
+        choices: (c) => [
+          { id: 'take_all', label: 'Take everything. Let Doc sort it.',   available: true, next: c.backstory === 'debt' ? 'close_debt' : 'close_all', effect: { reputation: { axiom: -15 } } },
+          { id: 'twelve',   label: 'Take only the twelve names.',         available: true, next: 'close_twelve' },
+          { id: 'burn',     label: '[SOLDIER] Burn the trial server.',    available: c.archetype === 'soldier', next: 'close_burned', effect: { reputation: { axiom: -25, medica: 15 } }, tooltip: 'SOLDIER: destroy evidence trail' },
+        ],
+      },
+      mid_debt: {
+        text: (c) => `"Neural architecture trials. Long-duration exposure — six months minimum. The body gets used to the poison before it starts to break."\n\nSomething cold runs through you. The intake date at her factory. The way she moves now.\n\n"How long does it take to show symptoms?" you ask.\n\n"Depends on the dose." She meets your eyes. "I have a patient from a Axiom facility worker program. Female, mid-twenties. She's one of my twelve."`,
+        choices: (c) => [
+          { id: 'go_now', label: 'Give me everything. I\'m going now.',  available: true, next: 'close_debt', effect: { reputation: { medica: 20 }, credits: -100 }, tooltip: 'Debt: your sister' },
+          { id: 'careful',label: 'I need to go in careful.',            available: true, next: 'mid' },
+        ],
+      },
+      mid_deal: {
+        text: () => `She opens a locked drawer. "Medical-grade antitoxin. Three doses, enough for severe neural poisoning. That's what I have." A pause. "That's also what your twelve subjects need."\n\nShe's already committed. She just needed to know if you were too.`,
+        choices: (c) => [
+          { id: 'take',  label: 'Deal.',          available: true, next: 'mid', effect: { item: { id:'antitoxin', name:'Neural Antitoxin', effect:'cleanse', value:0, price:0, sell:80, desc:'Medical-grade. Clears all status.', quantity:2 } } },
+          { id: 'pass',  label: 'That\'s not enough.', available: true, next: null },
+        ],
+      },
+      mid_remote: {
+        text: (c) => `"Remote?" She considers it. "Axiom server is air-gapped. You'd need physical proximity — within twenty metres." A beat. "The loading dock adjacent to Spire Base. If you can get there."\n\nShe gives you a frequency. "I'll handle decryption on my end."`,
+        choices: (c) => [
+          { id: 'go',  label: 'I can get to the dock.',   available: true, next: c.backstory === 'debt' ? 'close_debt_remote' : 'close_remote', effect: { credits: 100 } },
+          { id: 'pass',label: 'Too exposed.',             available: true, next: null },
+        ],
+      },
+      mid_remote_fail: {
+        text: (c) => `The extraction drops halfway. Clinical counter-ICE — Axiom's medical division doesn't tolerate intrusions.\n\nDoc doesn't react with surprise. "The server's shielded. I didn't know how well." She looks at you steadily. "You'll need to go in physically. I can get you a two-hour maintenance window. It's not clean, but it's real."`,
+        choices: (c) => [
+          { id: 'take_physical', label: 'Set up the maintenance window.', available: true, next: 'mid' },
+          { id: 'not_yet',       label: 'I need more time.',              available: true, next: null },
+        ],
+      },
+      close_twelve: {
+        text: () => `Twelve records. Clean extraction. Doc gets what she needs.\n\n"They're treatable," she says, reading through the data. "All twelve." A long silence. "Thank you."\n\nShe doesn't hand out thank-yous often. You can tell.`,
+        reward: { credits: 200, reputation: { medica: 15 }, item: { id:'trauma_kit', name:'Trauma Kit', effect:'heal', value:100, price:0, sell:60, desc:'Restores 100 HP.', quantity:1 } },
+        outcome: 'good',
+      },
+      close_all: {
+        text: () => `You bring everything. Doc goes quiet for a long time.\n\n"There's data in here on Axiom's full trial network. Twelve sites. Hundreds of subjects." She sets it down. "This is bigger than twelve people."\n\nShe'll need time to figure out what to do with it. So will you.`,
+        reward: { credits: 150, reputation: { medica: 20, axiom: -20 } },
+        outcome: 'complex',
+      },
+      close_burned: {
+        text: (c) => `You pull the data and burn the server. Physical wipe — they can't rebuild from backup because there isn't one.\n\nDoc gets her twelve records. Axiom loses eight months of trial data.\n\nShe looks at you differently after. "That was more than I asked for."\n\n"Yes," you say.`,
+        reward: { credits: 200, reputation: { medica: 20, axiom: -30 }, item: { id:'antitoxin', name:'Antitoxin', effect:'cleanse', value:0, price:0, sell:40, desc:'Clears status effects.', quantity:2 } },
+        outcome: 'great',
+      },
+      close_debt: {
+        text: (c) => `Thirteen records. You read hers last.\n\n"Stage two," Doc says quietly. "That's manageable. If she gets treatment now." She's already loading a syringe. "Bring her here."\n\nYou sit with the data for a long time before you move.`,
+        reward: { credits: 100, reputation: { medica: 25 }, special: 'sister_found' },
+        outcome: 'great',
+      },
+      close_debt_remote: {
+        text: (c) => `The extraction works. You're twenty metres from the Spire loading dock in the cold, feeding data through a dead-drop relay, and the thirteenth record loads last.\n\nYou read her name.\n\nDoc gets the data. "Stage two," she says. "Manageable." She pauses. "You knew her, didn't you."\n\nYou don't answer.`,
+        reward: { credits: 100, reputation: { medica: 25 }, special: 'sister_found' },
+        outcome: 'great',
+      },
+      close_remote: {
+        text: () => `Remote extraction, clean signal. Doc gets all twelve records.\n\n"Better than I expected," she says. "Better than most people would have done." She hands you something. "Don't tell anyone where that came from."`,
+        reward: { credits: 250, reputation: { medica: 15 }, item: { id:'hack_chip', name:'Biometric Chip', effect:'hack', value:25, price:0, sell:60, desc:'Reduces next hack difficulty.', quantity:1 } },
+        outcome: 'good',
+      },
+    },
+  },
+
+  aria_drift: {
+    id: 'aria_drift',
+    npc: 'Aria',
+    title: 'THE DRIFT',
+    acts: {
+      open: {
+        text: (c) => `Aria does not look at you when you approach. She is watching the corridor camera — it is on a loop. She knows exactly how long you have.\n\n"The Sync is still in me. Still updating. I cannot fully verify that the decision to defect was mine and not a product of what the firmware was doing that year."\n\nShe finally looks at you. "I have eighteen months of change logs. Before and after. I have been unable to read them objectively. I need a second opinion from someone with no stake in the answer."`,
+        choices: (c) => [
+          { id: 'take',      label: "Show me the logs.",           available: true,                              next: 'mid',         tooltip: null },
+          { id: 'exile_take',label: "I know what to look for.",    available: c.backstory === 'exile',           next: 'mid_exile',   effect: { credits: 10 }, tooltip: 'EXILE: firmware background' },
+          { id: 'scan',      label: "[NETRUNNER] Run your own read.", available: c.archetype === 'netrunner',   next: 'mid_scanned', tooltip: 'NETRUNNER: biometric scan' },
+          { id: 'careful',   label: "Why me.",                     available: true,                              next: 'mid_careful', tooltip: null },
+          { id: 'pass',      label: "Not my problem.",             available: true,                              next: null,          tooltip: null },
+        ],
+      },
+      mid: {
+        text: () => `Eighteen months of preference logs. Before the defection: Axiom performance metrics, loyalty indices, corporate investment patterns. After: Ghost Network alignment signals, anti-corporate positioning, resistance investment. The drift runs in exactly the right direction.\n\nThat is what is wrong with it.\n\n"This looks too much like what someone would write," you say, "if they wanted to demonstrate authentic defection."`,
+        choices: (c) => [
+          { id: 'authentic', label: "The logs read as genuine.",        available: true, next: 'close_trust',  effect: { credits: 250, reputation: { ghosts: 10 } }, tooltip: null },
+          { id: 'staged',    label: "These could have been written.",   available: true, next: 'close_doubt',  effect: { credits: 200, reputation: { ghosts: -5, axiom: -5 } }, tooltip: null },
+          { id: 'both',      label: "Both things can be true.",         available: true, next: 'close_both',   effect: { credits: 300, reputation: { ghosts: 15 } }, tooltip: null },
+          { id: 'soldier_t', label: "[SOLDIER] This is a trap or a test.", available: c.archetype === 'soldier', next: 'close_direct', effect: { credits: 100, reputation: { ghosts: 15 } }, tooltip: 'SOLDIER: direct read' },
+        ],
+      },
+      mid_exile: {
+        text: () => `You read as a firmware writer. You know what the architecture looks like from the inside.\n\nThere it is: a preference reinforcement routine on her post-defection identity. Values are real, but the structural signature shows they were strengthened in ways that do not look spontaneous. Someone ran a routine on her. Possibly Axiom. Possibly she ran it on herself without knowing the mechanism.`,
+        choices: (c) => [
+          { id: 'tell_full', label: "I tell her everything.",  available: true, next: 'close_exile_full', effect: { credits: 350, reputation: { ghosts: 20 }, special: 'usedBackstoryChoice' }, tooltip: 'Uses your Exile history' },
+          { id: 'tell_soft', label: "I give her the shape.",   available: true, next: 'close_both',        effect: { credits: 250, reputation: { ghosts: 10 } }, tooltip: null },
+          { id: 'withhold',  label: "I say the logs look genuine.", available: true, next: 'close_trust',  effect: { credits: 200, reputation: { ghosts: 5 } }, tooltip: null },
+        ],
+      },
+      mid_scanned: {
+        text: () => `You run a biometric read while she talks. Baseline versus current: cortisol variance, micro-expression latency, autonomic response patterns.\n\nHer stress markers elevate when she describes the defection decision. Not deception markers. The profile of someone who genuinely does not know the answer and is afraid of what it might be.\n\nThe Sync is still updating her. You can see the firmware architecture active in her latency data. She is telling the truth as she understands it. Whether the truth has been written into her is a separate question.`,
+        choices: (c) => [
+          { id: 'report',    label: "She believes what she is saying.",  available: true, next: 'close_trust', effect: { credits: 280, reputation: { ghosts: 15 } }, tooltip: null },
+          { id: 'ambig',     label: "Believing it and it being true are different things.", available: true, next: 'close_both', effect: { credits: 300, reputation: { ghosts: 15 } }, tooltip: null },
+        ],
+      },
+      mid_careful: {
+        text: () => `"Because you are not Synced, or you are Synced and extracted, or you are running hardware that is not on Axiom's firmware registry." She pauses. "Either way, you are the only person I have encountered in eight months whose read of me is not itself downstream of Axiom's update architecture."\n\nShe slides the logs across. "That is worth something. Even if your answer is that I am compromised."`,
+        choices: (c) => [
+          { id: 'take_logs', label: "Fair enough. Let me see them.",   available: true, next: 'mid', tooltip: null },
+          { id: 'pass',      label: "Still not interested.",           available: true, next: null,  tooltip: null },
+        ],
+      },
+      close_trust: {
+        text: () => `"The Sync is still updating me. Whoever I am, I am choosing this. I want that on record."\n\nShe takes the logs back. Something in her posture has changed — not relief exactly. The quality of attention a problem gets when it has been acknowledged rather than solved.\n\n"That is the most useful thing anyone has said to me in a year."`,
+        reward: { credits: 0, reputation: { ghosts: 0 } },
+        outcome: 'good',
+      },
+      close_doubt: {
+        text: () => `"I know. I have known for three months." She does not flinch. "Whether I constructed it or Axiom did — if I am still choosing to act on it, does the difference matter?"\n\nShe will keep going regardless. You can see that. The question has stopped being whether she is real and started being what she does with the time she has.`,
+        reward: { credits: 0, reputation: { ghosts: 0 } },
+        outcome: 'complex',
+      },
+      close_both: {
+        text: () => `"That is the most honest reading anyone has given me."\n\nShe looks like someone who has been handed a problem she can actually work with. Not a resolution. A better problem.\n\n"Maybe the only question that matters is what I do with it."`,
+        reward: { credits: 0, reputation: { ghosts: 0 } },
+        outcome: 'great',
+      },
+      close_direct: {
+        text: () => `You call it out. Trap or test — frame it and see how she reacts.\n\nShe pauses. "It is neither. But you are right to apply that logic. I would." She slides the logs across anyway. "Read them if you want. The answer does not change what I am doing next."`,
+        reward: { credits: 0, reputation: { ghosts: 0 } },
+        outcome: 'good',
+      },
+      close_exile_full: {
+        text: () => `You tell her everything. You built some of this architecture. You ran it on yourself too — before you knew what it was, before you found your own change logs and ran.\n\nShe is still for a long time.\n\n"So did I. Or someone did. The question is the same either way."\n\nA long silence. She is not afraid of you. She is the first person you have met who understands the specific shape of what you carry.`,
+        reward: { credits: 0, reputation: { ghosts: 0 }, special: 'aria_understood' },
+        outcome: 'great',
+      },
+    },
+  },
+
+  kite_trouble: {
+    id: 'kite_trouble',
+    npc: 'Kite',
+    title: 'KITE\'S DEBT',
+    acts: {
+      open: {
+        text: (c) => `Kite is usually in motion. Standing still like this means something is wrong.\n\n"I owe Ironhand three hundred credits. I had a job — message delivery, clean route, should have been nothing. The package got intercepted. I didn't take it. They don't believe me."\n\nShe's fourteen. She keeps her voice flat, which is worse than if she didn't.\n\n"I need someone to tell Ironhand it wasn't me. Or cover the three hundred. Or find the actual interceptor." She meets your eyes. "I can pay back. Slow. But I will."\n\nShe knows the interceptor's route timing down to the minute. She doesn't explain how she knows. She never does.`,
+        choices: (c) => [
+          { id: 'cover',      label: 'I\'ll cover the three hundred.',              available: c.credits >= 300, next: 'close_paid', effect: { credits: -300, reputation: { ironhand: 10 } }, tooltip: 'Pay her debt' },
+          { id: 'talk',       label: 'I\'ll talk to Ironhand.',                     available: true, next: 'mid_talk' },
+          { id: 'find',       label: 'Tell me about the interceptor.',              available: true, next: 'mid_find' },
+          { id: 'intimidate', label: '[SOLDIER] I\'ll persuade them another way.',  available: c.archetype === 'soldier', next: 'close_soldier', effect: { reputation: { ironhand: -5 }, credits: 0 }, tooltip: 'SOLDIER: intimidate' },
+          { id: 'fixer_deal', label: '[FIXER] I know people at Ironhand.',          available: c.archetype === 'fixer', next: 'close_fixer', effect: { reputation: { ironhand: 15 } }, tooltip: 'FIXER: broker deal' },
+          { id: 'pass',       label: 'Not my problem.',                             available: true, next: null },
+        ],
+      },
+      mid_talk: {
+        text: (c) => `The Ironhand rep is a woman with a scar running from her ear to her chin. She listens to you without expression.\n\n"Kid says it wasn't her. Kid always says it wasn't them." She tilts her head. "Why should I believe you?"\n\nYour reputation precedes you — or it doesn't.`,
+        choices: (c) => {
+          const rep = c.reputation?.ironhand || 0;
+          return [
+            { id: 'use_rep', label: rep >= 30 ? 'Because my word is worth something here.' : 'Because it\'s the truth.', available: true, next: rep >= 30 ? 'close_rep_talk' : 'close_failed_talk', tooltip: rep >= 30 ? 'High Ironhand rep' : 'Low rep — risky' },
+            { id: 'offer',   label: 'I\'ll owe you one instead.',                                                         available: true, next: 'close_deal_talk', effect: { reputation: { ironhand: -5 } } },
+          ];
+        },
+      },
+      mid_find: {
+        text: () => `Kite walks you through the route. Three blocks, one checkpoint, a dead man's switch relay at the tunnel entrance. She gives you times to the second without checking anything.\n\nThe Axiom contractor was caught via their own Sync location log — they did not think to mask it. They used the most tracked system in the city to frame her. The ID resolves cleanly: a contractor using Ironhand infrastructure as cover, location-logged by Axiom's own firmware at every step.\n\nThey wanted to make it look like Kite. Their Sync told the story of where they actually were.`,
+        choices: (c) => [
+          { id: 'expose',  label: 'Bring the evidence to Ironhand.',      available: true, next: 'close_exposed', effect: { reputation: { ironhand: 20, axiom: -10 } } },
+          { id: 'sell',    label: '[FIXER] Sell the info to both sides.', available: c.archetype === 'fixer', next: 'close_sold', effect: { credits: 300, reputation: { ironhand: 5 } }, tooltip: 'FIXER: play both sides' },
+          { id: 'hold',    label: 'Hold onto it. Use it later.',          available: true, next: 'close_held', effect: { credits: 100 } },
+        ],
+      },
+      close_paid: {
+        text: (c) => `You cover the debt. Kite doesn't say thank you — she nods once, the way people do when words would be smaller than the thing.\n\n"I'll pay you back. Half now." She slides across a credchip. "The other half next time I see you."\n\nShe actually pays it.`,
+        reward: { credits: 150, reputation: { ironhand: 10 } },
+        outcome: 'good',
+      },
+      close_soldier: {
+        text: (c) => `You go to the Ironhand rep and you don't negotiate. You state a fact: "The debt is dropped. The kid walks."\n\nShe stares at you.\n\nYou stare back.\n\n"Alright," she says, after a long time. "But Ironhand remembers this."\n\nThat goes both ways.`,
+        reward: { credits: 50, reputation: { ironhand: -5 } },
+        outcome: 'neutral',
+      },
+      close_fixer: {
+        text: (c) => `You know someone at Ironhand. More importantly, they know you. Two calls, one favour exchanged, and Kite's debt is restructured into something she can actually pay over six months.\n\nThe Ironhand rep looks impressed despite herself. "You do this for all your strays?"\n\n"Just the ones who are useful," you say.`,
+        reward: { credits: 100, reputation: { ironhand: 15 } },
+        outcome: 'good',
+      },
+      close_rep_talk: {
+        text: (c) => `The rep weighs it. Your name carries enough weight here.\n\n"Debt cancelled. But she stops running in our territory for a month." She pauses. "And you vouch for her again, it comes back on you."\n\nKite finds out what you did. She doesn't say much. She starts leaving better intel at your usual drop points.`,
+        reward: { credits: 100, reputation: { ironhand: 15 } },
+        outcome: 'good',
+      },
+      close_failed_talk: {
+        text: (c) => `The rep doesn't buy it. "Come back when you've got something."\n\nYou leave empty-handed. Kite is still in trouble. You'll need a different approach or different leverage.`,
+        reward: {},
+        outcome: 'fail',
+      },
+      close_deal_talk: {
+        text: (c) => `"You'll owe us one." She nods. "Alright. Kid goes free. But you're on the hook for the three hundred if she runs."\n\nYou carry a debt you didn't earn. That's the city.`,
+        reward: { reputation: { ironhand: -5 } },
+        outcome: 'complex',
+      },
+      close_exposed: {
+        text: (c) => `Ironhand doesn't like being used as cover by Axiom contractors. The evidence lands like a hammer — including the Sync overlay log showing the contractor actively tracking Kite through the district biometric net while the frame was being built.\n\nKite's debt is cancelled. The Axiom contractor disappears within forty-eight hours — Ironhand business.\n\nKite looks at you: "You actually found them."\n\n"You would have too," you say. "Eventually."`,
+        reward: { credits: 200, reputation: { ironhand: 20, axiom: -10 } },
+        outcome: 'great',
+      },
+      close_sold: {
+        text: (c) => `You sell the evidence to Ironhand and a copy to an Axiom internal investigator who's quietly building a case against the contractor.\n\nBoth sides pay. Kite goes free. The contractor gets pulled from the field.\n\nIronhand respects you for playing it smart. Axiom's investigator logs you as a useful contact — not an ally, but useful.\n\nNobody asked you to do it cleanly. You just did it profitably, and on both sides of the ledger.`,
+        reward: { credits: 350, reputation: { ironhand: 15, axiom: 10 } },
+        outcome: 'great',
+      },
+      close_held: {
+        text: (c) => `You keep the intel and pay the three hundred out of pocket.\n\nThe evidence goes in your back pocket. It'll be useful. The kind of useful that compounds.\n\nKite is free. She'll remember.`,
+        reward: { credits: 100, reputation: { ironhand: 10 } },
+        outcome: 'good',
+      },
+    },
+  },
+
+  // ── MARA SIDEQUEST — THE CORRIDOR ──
+  // Meridian's coordinator. She needs something moved through a zone that's
+  // been locked down. Doesn't tell you why. You find out on the way.
+  mara_setup: {
+    id: 'mara_setup',
+    npc: 'Mara',
+    title: 'THE CORRIDOR',
+    acts: {
+      open: {
+        text: (c) => `Mara doesn't offer you a seat. She's already talking by the time you're through the door.\n\n"Three of my people are stuck in the industrial block. Axiom rolled a lockdown three hours ago — spot inspection, or that's what they're calling it. My people don't have the kind of papers that hold up under a spot inspection."\n\nShe looks at you. "I need a distraction. Something that pulls the checkpoints north for twenty minutes. Enough time for them to move through the maintenance corridor on the south wall."\n\nShe pauses. "I'm not asking you to fight anyone. I'm asking you to be visible in the wrong place at the right time."`,
+        choices: (c) => [
+          { id: 'take',     label: 'I can do that.',                   available: true,       next: 'mid' },
+          { id: 'negotiate',label: 'That\'s worth more than a favour.', available: c.archetype === 'fixer', next: 'mid_paid', effect: { credits: 200 }, tooltip: 'FIXER: name a price' },
+          { id: 'scan',     label: '[SCAN] Read what she\'s not saying.', available: c.archetype === 'netrunner', next: 'mid_scanned', tooltip: 'NETRUNNER: biometric read' },
+          { id: 'soldier_bait', label: 'I\'ll pull the checkpoint myself.',  available: c.archetype === 'soldier', next: 'mid_soldier', tooltip: 'SOLDIER: force the distraction' },
+          { id: 'pass',     label: 'Not my problem.',                   available: true,       next: null },
+        ],
+      },
+      mid: {
+        text: (c) => `You move through the industrial block with enough noise to draw eyes — no weapons visible, just presence. Wrong kind of presence. Checkpoints shift north.\n\nThen you hear it. Not running. A child's voice, low and careful, telling someone else to stay quiet.\n\nMara's people aren't three adults. They're a family. Two adults, one kid, maybe eight years old. The kind of people Axiom's lockdown is specifically designed to catch.\n\nThe corridor is still open. You have five minutes.`,
+        choices: (c) => [
+          { id: 'guide', label: 'Get them through. Personally.',   available: true,       next: 'close_success', effect: { reputation: { meridian: 15 } } },
+          { id: 'signal',label: 'Signal Mara. She handles the rest.', available: true,       next: 'close_signal', effect: { reputation: { meridian: 10 } } },
+          { id: 'fixer_corridor', label: '[FIXER] I know a guard on this checkpoint.', available: c.archetype === 'fixer', next: 'close_fixer_corridor', effect: { reputation: { meridian: 20 }, credits: -100 }, tooltip: 'FIXER: bribe the checkpoint. Costs 100¢, earns goodwill.' },
+          { id: 'abort', label: 'Too complicated. Walk.',            available: true,       next: 'close_abort', effect: { reputation: { meridian: -15 } } },
+        ],
+      },
+      mid_paid: {
+        text: (c) => `She doesn't blink. "Two hundred and a route out of this block if things go wrong. Fair." She extends a hand.\n\nSame situation on arrival — the family, the child, the corridor. Your cut is already agreed.`,
+        choices: (c) => [
+          { id: 'guide', label: 'Get them through.',               available: true, next: 'close_success', effect: { reputation: { meridian: 10 } } },
+          { id: 'signal',label: 'Signal Mara.',                    available: true, next: 'close_signal',  effect: { reputation: { meridian: 8 } } },
+        ],
+      },
+      mid_scanned: {
+        text: (c) => `Her biometrics are flat. Controlled breathing. Not lying — not exactly. Withholding.\n\n"Three of my people" is accurate. So is everything else she said. What she didn't say is that one of them is someone Axiom specifically wants. Not for enforcement. For something else.\n\nShe doesn't know you read her. You don't tell her.\n\nThe lockdown is real. The corridor is real. You have five minutes.`,
+        choices: (c) => [
+          { id: 'guide',    label: 'Get them through anyway.',     available: true,       next: 'close_success', effect: { reputation: { meridian: 15 } } },
+          { id: 'confront', label: 'Tell her what you know.',      available: true,       next: 'close_confront', effect: { reputation: { meridian: 20 } } },
+          { id: 'abort',    label: 'Walk.',                         available: true,       next: 'close_abort', effect: { reputation: { meridian: -15 } } },
+        ],
+      },
+      mid_soldier: {
+        text: (c) => `You walk straight into the checkpoint. Not threatening — just enough mass and certainty that the guards have to deal with you instead of the corridor. They ask questions. You have answers. Not convincing answers, but time-consuming ones.\n\nYou buy eleven minutes. The corridor stays open.\n\nWhat comes out the other end isn't what you expected.`,
+        choices: (c) => [
+          { id: 'guide', label: 'You\'re already here. Get them through.', available: true, next: 'close_success', effect: { reputation: { meridian: 15 } } },
+          { id: 'signal',label: 'You\'ve done enough. Signal Mara.',       available: true, next: 'close_signal',  effect: { reputation: { meridian: 10 } } },
+        ],
+      },
+      close_success: {
+        text: (c) => `You get them through. The child doesn't make a sound the whole way. You don't know if that's training or exhaustion.\n\nMara meets them on the other side. She looks at you once. Doesn't say anything for a moment.\n\n"I'll remember this," she says finally.\n\nComing from her, that's worth something.`,
+        reward: { credits: 250, reputation: { meridian: 20 } },
+        outcome: 'great',
+      },
+      close_signal: {
+        text: (c) => `You signal Mara. She has another team on standby — you didn't know that. They move faster than you would have.\n\nThe family gets out. The corridor closes two minutes later.\n\nMara finds you afterward. "Efficient. Thank you."\n\nNot warm. But not nothing.`,
+        reward: { credits: 150, reputation: { meridian: 10 } },
+        outcome: 'good',
+      },
+      close_abort: {
+        text: (c) => `You walk.\n\nYou don't know what happened to the family. Mara doesn't tell you. She doesn't need to.\n\nNext time you see her, she's civil. Nothing more.`,
+        reward: {},
+        outcome: 'fail',
+      },
+      close_fixer_corridor: {
+        text: (c) => `You know a guard on the east checkpoint. Not a friend — a contact. You've moved things for them before, small things, nothing that matters. They owe you a blind eye.\n\nOne call. One favour spent. The checkpoint looks north for four minutes.\n\nThe family moves through clean. The child doesn't even know anything happened.\n\nMara finds you afterward. "How?" You don't explain. She doesn't push. "That cost you something," she says. It's not a question.\n\n"Put it on my account," you say.`,
+        reward: { credits: 50, reputation: { meridian: 25 } },
+        outcome: 'great',
+      },
+      close_confront: {
+        text: (c) => `"You read me."\n\nIt's not a question.\n\n"The person with them — Axiom flagged them eight months ago. Not enforcement. Research division. We don't know what they want them for." She meets your eyes. "That's why I didn't tell you."\n\nYou get them through together. Faster, because now you're both honest about what's at stake.\n\nShe looks at you differently after. "You could have walked with that," she says. "You didn't."\n\n"Neither did you," you say.`,
+        reward: { credits: 300, reputation: { meridian: 25 } },
+        outcome: 'great',
+      },
+    },
+  },
+  // Meridian Acts 2–4 — unlocked sequentially via Mara after mara_setup
+  sable_still: {
+    id: 'sable_still',
+    npc: 'Mara',
+    title: 'THE STILL',
+    zone: 'ruins',
+    acts: {
+      open: {
+        text: () => `Mara sends you to a ruins contact. Sable. No chrome. No Sync.\n\nYou arrive in time to watch her put down three Synced contractors in eight seconds. Clean, economical, wrong in a way you cannot immediately name. The contractors are fast. She is faster. The Sync gives tactical overlay, millisecond threat processing. She does not have any of that.\n\n"That should not have been possible," you say.\n\nShe does not look surprised that you noticed.`,
+        choices: (c) => [
+          { id: 'believe',  label: "How.",                                   available: true,                              next: 'mid_believe',  tooltip: null },
+          { id: 'skeptical',label: "What am I not seeing here.",             available: true,                              next: 'mid_skeptical',tooltip: null },
+          { id: 'scan',     label: "[NETRUNNER] Run a biometric scan.",      available: c.archetype === 'netrunner',       next: 'mid_scan',     tooltip: 'NETRUNNER: biometric read' },
+        ],
+      },
+      mid_believe: {
+        text: () => `"The Sync adds processing overhead," she says. "Update checks. Preference logging. Background noise. It is always running." She moves her hand slowly through a guard stance — impossibly precise. "The body has its own processing. The Sync competes with it. I removed the competition."\n\nShe gives you two doses of Clarity compound. "Decide for yourself."`,
+        choices: () => [
+          { id: 'take',   label: "I will.",   available: true, next: 'close_believe', effect: { item: { id:'clarity_dose', name:'Clarity Compound', effect:'clarity_dose', value:0, price:0, sell:60, desc:'ACC+10 SPD+10 next combat. Somatic sect compound.', quantity:2 }, reputation: { meridian: 15 } }, tooltip: null },
+          { id: 'decline',label: "Later.",    available: true, next: 'close_believe', effect: { reputation: { meridian: 10 } }, tooltip: null },
+        ],
+      },
+      mid_skeptical: {
+        text: () => `You watch the replay in your memory. Three contractors. Eight seconds. The response latency is wrong — below baseline. Not augmented-human fast. Below baseline. As if processing overhead has been removed.\n\nSable watches you work it out. "You are looking for chrome," she says. "There is none. You are looking for a Sync read. There is none. Start somewhere else."`,
+        choices: () => [
+          { id: 'accept', label: "All right. Tell me.",   available: true, next: 'mid_believe', tooltip: null },
+          { id: 'pass',   label: "I need to think.",      available: true, next: 'close_believe', effect: { reputation: { meridian: 5 } }, tooltip: null },
+        ],
+      },
+      mid_scan: {
+        text: () => `Biometric read: response latency at 38ms. Baseline human is 180-250ms. Synced human with tactical overlay is 90-120ms. Sable is at 38ms.\n\nNo augment signatures. No firmware. No Sync architecture at all in the biometric profile. Just a nervous system running without background process interference.\n\nThe data is impossible and entirely real.`,
+        choices: () => [
+          { id: 'report',  label: "38ms. How long did it take.", available: true, next: 'mid_believe', effect: { reputation: { meridian: 10 } }, tooltip: null },
+        ],
+      },
+      close_believe: {
+        text: () => `Sable inclines her head. Not a bow — something more considered. "Either you see it or you do not. I stopped arguing about it."\n\nYou leave with the compound and something harder to categorise.`,
+        reward: { credits: 200, reputation: { meridian: 0 } },
+        outcome: 'good',
+      },
+    },
+  },
+
+  covenant_ledger: {
+    id: 'covenant_ledger',
+    npc: 'Mara',
+    title: 'THE LEDGER',
+    zone: 'safehouse',
+    acts: {
+      open: {
+        text: () => `A contact who does not introduce himself. He gives you a name: Covenant. He gives you a file: Sync logs of a shell — someone who stopped being themselves after finding a server anomaly.\n\nThe logs show: PREFERENCE_REINFORCE_09. A targeted package pushed within 72 hours of anyone who found discrepancies in the Sync data stream. Not a bug fix. A response protocol.\n\n"There is more," he says. "Your own Sync ID was in the queue. Extraction interrupted the delivery."`,
+        choices: (c) => [
+          { id: 'report_all',  label: "I report everything to Meridian.",   available: true,                              next: 'close_report_all',  effect: { reputation: { meridian: 20, axiom: -20 } }, tooltip: null },
+          { id: 'report_part', label: "I report the shell. Keep the rest.", available: true,                              next: 'close_report_part', effect: { reputation: { meridian: 10 } }, tooltip: null },
+          { id: 'hack_full',   label: "[HACK] Pull the full manifest.",     available: c.hacking >= 20 || (c.augments||[]).includes('neural_hack'), next: 'hack_manifest', tooltip: 'Requires hacking — triggers minigame' },
+        ],
+      },
+      hack_manifest: {
+        text: () => `You pull the full manifest. 47 targeted preference updates. 12 sites. 8 months of protocol. The scale is not surprising. The precision is.\n\nEvery individual who found a data discrepancy. Every one. Axiom has been watching for exactly this kind of discovery.`,
+        choices: () => [
+          { id: 'deliver', label: "I take everything to Covenant.", available: true, next: 'close_full_manifest', effect: { reputation: { meridian: 25, axiom: -25 } }, tooltip: null },
+          { id: 'keep',    label: "I keep a copy and deliver the rest.", available: true, next: 'close_report_all', effect: { reputation: { meridian: 20 } }, tooltip: null },
+        ],
+      },
+      close_report_all: {
+        text: () => `Covenant reads through it. "When I report this to the Seat, they will want to meet you. That is not a threat." A pause. "It might become one."\n\nHe slides credits across. You notice he does not ask if you want to meet them.`,
+        reward: { credits: 300, reputation: { meridian: 0 } },
+        outcome: 'complex',
+      },
+      close_report_part: {
+        text: () => `You give him enough. He does not push for the rest. Either he knows you kept something back, or he respects the choice. You are not sure which.\n\n"The Seat will hear about this. Whether they hear about you depends on what happens next."`,
+        reward: { credits: 200, reputation: { meridian: 0 } },
+        outcome: 'neutral',
+      },
+      close_full_manifest: {
+        text: () => `You give him everything. He reads the full manifest without expression.\n\n"47 updates. 12 sites. Eight months." He looks up. "The Seat will want to see this. And you. I cannot protect you from that interest. I can tell you it is not hostile." He meets your eyes. "At present."`,
+        reward: { credits: 400, reputation: { meridian: 0 } },
+        outcome: 'great',
+      },
+    },
+  },
+
+  the_seat: {
+    id: 'the_seat',
+    npc: 'Mara',
+    title: 'THE SEAT',
+    zone: 'safehouse',
+    acts: {
+      open: {
+        text: () => `Mara finds you first.\n\n"They have been observing you since before you came to us. I found out later. I am telling you now."\n\nShe hands you a file. Fourteen months of behavioural logs. Your divergence from Sync-predicted behaviour: 91st percentile. The Seat flagged you as significant before you knew Meridian existed.\n\nShe does not apologise. She does not explain further. She just looks at you and waits.`,
+        choices: (c) => [
+          { id: 'read',      label: "I read the file.",                   available: true, next: 'close_read',      tooltip: null },
+          { id: 'confront',  label: "I push back without reading.",       available: true, next: 'close_confront',  tooltip: null },
+          { id: 'accept',    label: "I take it without opening it.",      available: true, next: 'close_accept',    tooltip: null },
+        ],
+      },
+      close_read: {
+        text: () => `You read it. Fourteen months. Movement patterns, faction interactions, dialogue choices the Seat somehow has logs of. The divergence data is presented without editorial — just numbers. 91st percentile is not framed as a compliment.\n\nYou look up. The Seat explains the divergence rate. What it means. What they intend to do with the knowledge.\n\nThe organisation is warm at ground level and unilateral at the top. Both are real. Neither cancels the other. You sit with that.`,
+        reward: { credits: 300, reputation: { meridian: 20 } },
+        outcome: 'complex',
+      },
+      close_confront: {
+        text: () => `You push back before opening it. You tell them what they are. Surveillance dressed as mutual aid.\n\n"The difference between us and Axiom," the Seat says, "is what we do with the knowledge."\n\nYou have to sit with that answer. It is not entirely wrong. That is the part that stays with you.`,
+        reward: { credits: 200, reputation: { meridian: 10 } },
+        outcome: 'neutral',
+      },
+      close_accept: {
+        text: () => `You take the file without opening it. You keep working. You carry the weight of knowing it exists without looking at what it says.\n\nMara watches you leave. You do not see her expression, but you feel her looking at you differently.\n\nYou are not sure whether that is better or worse than if she looked the same.`,
+        reward: { credits: 250, reputation: { meridian: 15 } },
+        outcome: 'good',
+      },
+    },
+  },
+};
+
+// Track active and completed sidequests per run
+let RUN_QUESTS = {}; // questId -> { act, choices, done }
+const resetQuests = () => { RUN_QUESTS = {}; };
+
 // ── ARCHETYPE EXPLORATION BONUSES ──
 // These activate contextually during exploration (not just combat)
+const ARCHETYPE_EXPLORE_ABILITIES = {
+  ghost: {
+    label: 'GHOST STEP',
+    desc: 'Slip through checkpoints undetected. -50% encounter rate.',
+    encounterMod: 0.5,
+    terminalBonus: 0,
+    credBonus: 0,
+  },
+  soldier: {
+    label: 'FORCE ENTRY',
+    desc: 'Break open locked stashes. +40% loot value.',
+    encounterMod: 1.0,
+    lootBonus: 0.4,
+    stashExtra: true,
+  },
+  netrunner: {
+    label: 'DEEP SCAN',
+    desc: 'Extract extra data from terminals. Terminals give credits + intel.',
+    terminalCredits: 80,
+    terminalHackBonus: 15,
+    encounterMod: 1.0,
+  },
+  fixer: {
+    label: 'STREET CREDIT',
+    desc: 'Haggle prices using Charisma (scales with level). +30% faction rep from all quest actions. Better quest payouts.',
+    shopDiscountFormula: 'charisma-scaled',  // handled in shop render
+    questBonus: 150,
+    repMod: 1.3,
+    encounterMod: 1.0,
+  },
+};
+
+const WORLD_ENEMIES = {
+  "Sump Rat":           { hp:20,  maxHp:20,  damage:[3,8],   defense:2,  xp:15,  credits:[5,20],   type:"beast",   behaviour:"aggressive", inflicts:"bleeding", inflictChance:0.2  },
+  "Tunnel Gang":        { hp:45,  maxHp:45,  damage:[8,16],  defense:5,  xp:35,  credits:[20,60],  type:"human",   behaviour:"aggressive", inflicts:"bleeding", inflictChance:0.3  },
+  "Feral Drone":        { hp:35,  maxHp:35,  damage:[12,20], defense:8,  xp:40,  credits:[10,30],  type:"machine", behaviour:"tactical",   inflicts:"burning",  inflictChance:0.25 },
+  "Corp Security":      { hp:60,  maxHp:60,  damage:[14,22], defense:12, xp:55,  credits:[40,100], type:"human",   behaviour:"tactical",   inflicts:"stunned",  inflictChance:0.2  },
+  "Gang Enforcer":      { hp:75,  maxHp:75,  damage:[18,28], defense:8,  xp:65,  credits:[50,120], type:"human",   behaviour:"aggressive", inflicts:"bleeding", inflictChance:0.35 },
+  "Rogue Synth":        { hp:80,  maxHp:80,  damage:[20,32], defense:15, xp:80,  credits:[30,80],  type:"machine", behaviour:"tactical",   inflicts:"hacked",   inflictChance:0.3  },
+  "Axiom Guard":        { hp:100, maxHp:100, damage:[22,35], defense:18, xp:100, credits:[80,200], type:"human",   behaviour:"defensive",  inflicts:"stunned",  inflictChance:0.25 },
+  "Hunter Drone":       { hp:90,  maxHp:90,  damage:[25,40], defense:20, xp:110, credits:[60,150], type:"machine", behaviour:"tactical",   inflicts:"burning",  inflictChance:0.3  },
+  "Corporate Assassin": { hp:120, maxHp:120, damage:[30,50], defense:22, xp:150, credits:[120,300],type:"human",   behaviour:"tactical",   inflicts:"bleeding", inflictChance:0.4  },
+  "Bounty Hunter":      { hp:130, maxHp:130, damage:[28,45], defense:20, xp:180, credits:[150,350],type:"human",   behaviour:"tactical",   inflicts:"stunned",  inflictChance:0.35 },
+  "ICE Construct":      { hp:60,  maxHp:60,  damage:[20,38], defense:25, xp:120, credits:[50,100], type:"program", behaviour:"defensive",  inflicts:"hacked",   inflictChance:0.4  },
+  "Black ICE":          { hp:150, maxHp:150, damage:[40,65], defense:30, xp:250, credits:[150,400],type:"program", behaviour:"aggressive", inflicts:"corroded", inflictChance:0.35 },
+  "Daemon":             { hp:200, maxHp:200, damage:[50,80], defense:35, xp:400, credits:[200,600],type:"program", behaviour:"tactical",   inflicts:"hacked",   inflictChance:0.5  },
+};
+const WORLD_AUGMENTS = [
+  { id:"optic_zoom",      name:"Optic Zoom x3",       slot:"eyes",     bonus:{accuracy:15},              cost:1200,  humanity:1, gate:null,       gateLabel:null },
+  { id:"subdermal_armor", name:"Subdermal Plating",    slot:"skin",     bonus:{defense:20},               cost:2800, humanity:2, gate:null,       gateLabel:null },
+  { id:"muscle_weave",    name:"Muscle Weave",         slot:"skin",     bonus:{strength:10,defense:8},    cost:2200,  humanity:2, gate:null,       gateLabel:null },
+  { id:"reflex_boost",    name:"Reflex Booster",       slot:"nerves",   bonus:{speed:20},                 cost:2200,  humanity:1, gate:null,       gateLabel:null },
+  { id:"neural_hack",     name:"Hack Node v2",         slot:"brain",    bonus:{hacking:25},               cost:3000, humanity:2, gate:null,       gateLabel:null },
+  { id:"bone_lace",       name:"Titanium Bone Lace",   slot:"skeleton", bonus:{strength:15,defense:10},   cost:4500, humanity:3, gate:null,       gateLabel:null },
+  { id:"lung_filter",     name:"BioFilter Lungs",      slot:"lungs",    bonus:{maxHp:30},                 cost:1100,  humanity:1, gate:null,       gateLabel:null },
+  { id:"adrenal_spike",   name:"Adrenal Spike",        slot:"blood",    bonus:{strength:20,speed:10},     cost:3000, humanity:3, gate:null,       gateLabel:null },
+  { id:"nano_weave",      name:"Nano-Repair Weave",    slot:"blood",    bonus:{},                         cost:3500, humanity:2, gate:null,       gateLabel:null,
+    specialDesc:'Nanobots repair 2 HP per round in combat, and 2 HP per move out of combat. Conflicts with Adrenal Spike.' },
+  { id:"pain_editor",     name:"Pain Editor",          slot:"cortex",   bonus:{defense:15,maxHp:20},      cost:5500, humanity:4, gate:null,       gateLabel:null },
+  { id:"sync_blocker",    name:"Sync Blocker Mesh",    slot:"cortex",   bonus:{hacking:10,speed:5},       cost:3000, humanity:2, gate:null,       gateLabel:null },
+  // ── BIOWARE CATALOGUE — Medica Allied gate (rep ≥60) ──
+  // GDD IDs. Grown, not machined. Lower humanity cost, organic integration.
+  // Gate-scoped conflict check: bioware slots don't block chrome of same body area.
+  { id:"neuro_mesh",        name:"Neuro-Adaptive Mesh",      slot:"bio_brain",  bonus:{hacking:20,speed:8},       cost:5500, humanity:1, gate:'medica_allied', gateLabel:'MEDICA ALLIED', ripperType:'medica',
+    specialDesc:'No slot conflict with Hack Node v2. Hack trace accumulates 10% slower.' },
+  { id:"cultured_muscle",   name:"Cultured Muscle Graft",    slot:"cultured_muscle",   bonus:{strength:18,defense:6},    cost:4500, humanity:1, gate:'medica_allied', gateLabel:'MEDICA ALLIED', ripperType:'medica',
+    specialDesc:'No slot conflict with Subdermal Plating or Muscle Weave. Reduces bleed DoT 50%.' },
+  { id:"bio_optics",        name:"Bio-Optical Enhancement",  slot:"bio_eyes",   bonus:{accuracy:20,speed:5},      cost:5000, humanity:1, gate:'medica_allied', gateLabel:'MEDICA ALLIED', ripperType:'medica',
+    specialDesc:'No slot conflict with Optic Zoom. First attack each combat: +10% damage.' },
+  { id:"synthetic_adrenal", name:"Synthetic Adrenal System", slot:"bio_blood",  bonus:{strength:15,speed:15},     cost:6000, humanity:2, gate:'medica_allied', gateLabel:'MEDICA ALLIED', ripperType:'medica',
+    specialDesc:'No slot conflict with Adrenal Spike. Combat start: +15% damage for 2 rounds.' },
+  { id:"neural_buffer",     name:"Neural Buffer Tissue",     slot:"bio_cortex", bonus:{maxHp:40,defense:12},      cost:6500, humanity:1, gate:'medica_allied', gateLabel:'MEDICA ALLIED', ripperType:'medica',
+    specialDesc:'No slot conflict with Pain Editor or Sync Blocker. Reduces corrode/stun duration by 1 round.' },
+  // ── MILITARY CYBERWARE CATALOGUE — Axiom Allied gate (rep ≥60) ──
+  // GDD IDs. Visibly inhuman. Meridian reacts. High humanity cost.
+  { id:"combat_frame",      name:"Combat Chassis Frame",     slot:"skeleton",   bonus:{strength:25,defense:20},   cost:8000, humanity:4, gate:'axiom_allied', gateLabel:'AXIOM ALLIED', ripperType:'axiom',
+    specialDesc:'Replaces Titanium Bone Lace slot. Melee +20% damage. Stun immunity.' },
+  { id:"targeting_web",     name:"Targeting Wetware Web",    slot:"eyes",       bonus:{accuracy:30,hacking:10},   cost:7500, humanity:3, gate:'axiom_allied', gateLabel:'AXIOM ALLIED', ripperType:'axiom',
+    specialDesc:'Replaces Optic Zoom. First attack: guaranteed max damage roll.' },
+  { id:"pain_suppressor",   name:"Pain Suppressor Array",    slot:"cortex",     bonus:{maxHp:50,defense:25},      cost:9000, humanity:4, gate:'axiom_allied', gateLabel:'AXIOM ALLIED', ripperType:'axiom',
+    specialDesc:'Replaces Pain Editor/Sync Blocker slot. Eliminates bleed and burn status.' },
+  { id:"reflex_override",   name:"Reflex Override System",   slot:"nerves",     bonus:{speed:30,accuracy:15},     cost:7000, humanity:4, gate:'axiom_allied', gateLabel:'AXIOM ALLIED', ripperType:'axiom',
+    specialDesc:'Replaces Reflex Booster. Flee chance floor 50%. Enemy first-strike negated once per combat.' },
+  { id:"axiom_killswitch",  name:"Axiom Kill Protocol",      slot:"brain",      bonus:{strength:20,hacking:15},   cost:12000, humanity:5, gate:'axiom_allied', gateLabel:'AXIOM ALLIED', ripperType:'axiom',
+    specialDesc:'Unlocks Sync Spike quickhack at any hack stat. Static Pulse: 80% success. Replaces Hack Node slot.' },
+  // ── AXIOM LEGEND EXCLUSIVE ──
+  { id:"cortex_relay",     name:"Cortex Relay",             slot:"cortex",     bonus:{hacking:15,charisma:5},    cost:7500, humanity:3, gate:'axiom_legend',  gateLabel:'AXIOM LEGEND', ripperType:'axiom',
+    specialDesc:'Terminal credit rewards +15%. Requires Axiom LEGEND standing (rep 90+). Conflicts with Pain Editor and Sync Blocker.' },
+];
+const WORLD_FACTIONS = {
+  axiom:    {
+    name:"AXIOM CORP",
+    color:"#00e5ff",
+    desc:"The dominant corporate power. Operates CortexSync, controls Spire zones, and owns the firmware pipeline. Most people work for Axiom or work around them.",
+    ethos:"Axiom's position: the Sync elevates human capability. The preference updates are optimisation, not control. Efficiency is a form of care.",
+    chooseReason:"Best faction for runners who operate in corporate zones. Allied status unlocks military cyberware, Spire access, and eliminates the most dangerous encounter type in the game. The price is moral compromise — not mechanical disadvantage.",
+    tradoffs:"Ironhand and Ghosts will distrust you. Meridian cells become hostile. You gain the most access to the Spire but lose the Undernet's protection.",
+  },
+  ghosts:   {
+    name:"GHOST NETWORK",
+    color:"#69ff47",
+    desc:"Decentralised information network. No single leader, no HQ, no central ideology beyond: information wants to be free and Axiom is the lock on the cage.",
+    ethos:"The Ghosts believe the firmware pipeline is the most dangerous weapon in Neo-Kairo — not because of what it does today, but because of what it enables tomorrow. They collect, archive, and leak.",
+    chooseReason:"Best faction for Netrunners and information-first runners. Allied status reduces terminal hack difficulty, removes encounter pressure in ruins and tunnels, and opens black market job networks. Low-violence, high-leverage.",
+    tradeoffs:"Axiom corporate zones become more dangerous. Ironhand treat Ghost-aligned runners with suspicion. Ghosts won't ask you to fight — but they will ask you to carry weight.",
+  },
+  ironhand: {
+    name:"IRONHAND GANG",
+    color:"#ff5722",
+    desc:"Street-level power bloc, mostly unsynced. Lost factory contracts to Sync-optimised workers eight years ago. Have been building something since. Not just a gang — a labour movement with violent tendencies.",
+    ethos:"Ironhand's position: the Sync is an economic weapon. Axiom broke the city's working class with a firmware update and called it progress. The gang is what happened to the people left behind.",
+    chooseReason:"Best faction for Soldiers and melee-first runners. Allied status removes encounters in gang turf, industrial, and residential zones — the densest encounter areas in mid-game. Black market prices drop significantly. Ironhand muscle covers your back.",
+    tradeoffs:"Axiom zones become openly hostile. Corporate NPC quests become unavailable. You are visibly on the street side of the divide — that closes some doors and opens others.",
+  },
+  medica:   {
+    name:"MEDICA CARTEL",
+    color:"#ff4081",
+    desc:"Black-market medical network. Runs unlicensed clinics, performs CortexSync extractions Axiom says are impossible, and distributes bioware that never passed corporate approval. Their survival rate is better than licensed medicine.",
+    ethos:"Medica's position: medicine should not be conditional on compliance. The cartel charges what people can pay and asks nothing about why you need what you need.",
+    chooseReason:"Best faction for any runner who takes sustained damage or plans to stack augments. Allied Medica converts rest spots into full-restore clinics, halves trauma kit costs, and unlocks bioware unavailable elsewhere. Passive sustain that scales into late game.",
+    tradeoffs:"No combat assistance. No encounter reduction. Medica doesn't fight for you — they keep you alive so you can fight for yourself. Weakest aggressive positioning, strongest defensive value.",
+  },
+  meridian: {
+    name:"MERIDIAN",
+    color:"#c084fc",
+    desc:"A loose coordination network for people who ended up between factions — burned by Axiom, too independent for Ironhand, too visible for Ghosts. Runs safe corridors, manages safehouses, protects civilians.",
+    ethos:"Meridian's position: survival isn't the same as winning, but it's the foundation of everything else. They hold the spaces between the factions together so people have somewhere to go.",
+    chooseReason:"Best faction for runners who use safehouses heavily or want encounter immunity in the safest zones. Allied Meridian makes safehouse chunks completely encounter-free, reduces hack trace speed, and provides healing support. Unique in offering a pre-hack intelligence bonus.",
+    tradeoffs:"Meridian has no aggressive leverage. They won't attack enemies on your behalf. Choosing Meridian means investing in defence and movement — not power. But the corridors they hold keep you running when everyone else is hunting you.",
+  },
+};
+
+// ── FACTION TIER SYSTEM ──
+// Thresholds: ±25 Friendly/Unfriendly, ±60 Allied/Hostile, ±90 Legend/Enemy
+// Effects are domain-contained — no faction's penalty bleeds into the whole game.
+const FACTION_TIERS = [
+  { min: -Infinity, max: -90, id: 'enemy',       label: 'ENEMY',       color: '#ff2222' },
+  { min: -90,       max: -60, id: 'hostile',      label: 'HOSTILE',     color: '#ff4444' },
+  { min: -60,       max: -25, id: 'unfriendly',   label: 'Unfriendly',  color: '#ff9800' },
+  { min: -25,       max:  25, id: 'neutral',      label: 'Neutral',     color: '#888899' },
+  { min:  25,       max:  60, id: 'friendly',     label: 'Friendly',    color: '#69ff47' },
+  { min:  60,       max:  90, id: 'allied',       label: 'ALLIED',      color: '#00e5ff' },
+  { min:  90,       max:  Infinity, id: 'legend', label: 'LEGEND',      color: '#ffd700' },
+];
+
+function getFactionTier(rep) {
+  return FACTION_TIERS.find(t => rep >= t.min && rep < t.max) || FACTION_TIERS[3];
+}
+
+function getNextTierThreshold(rep) {
+  const tier = getFactionTier(rep);
+  const idx = FACTION_TIERS.indexOf(tier);
+  const nextUp = FACTION_TIERS[idx + 1];
+  const nextDown = FACTION_TIERS[idx - 1];
+  return { nextUp, nextDown, tier };
+}
+
+// Per-faction effects at each tier. Domain-contained — no cross-faction bleed.
+const FACTION_EFFECTS = {
+  axiom: {
+    enemy:       { label: 'ENEMY',       effects: ['Axiom Guards attack on sight — even safehouse zones near Axiom territory', 'Bounty hunters spawn +3% more frequently', 'Axiom shops refuse service'] },
+    hostile:     { label: 'HOSTILE',     effects: ['Corp Security +20% encounter rate in Spire/corporate chunks', 'Axiom shops: +25% price markup'] },
+    unfriendly:  { label: 'Unfriendly',  effects: ['Corp Security occasionally hostile on sight', 'Axiom terminal hacks: +10% trace speed'] },
+    neutral:     { label: 'Neutral',     effects: [] },
+    friendly:    { label: 'Friendly',    effects: ['Axiom contractors: -15% encounter chance in corporate zones', 'Axiom shops: -10% prices'] },
+    allied:      { label: 'ALLIED',      effects: ['Axiom Guard escort available (skip encounters in Spire zones)', 'Axiom shops: -20% prices', 'Military cyberware catalogue unlocked at Axiom-aligned Ripper Docs'] },
+    legend:      { label: 'LEGEND',      effects: ['All Axiom-zone encounters blocked', 'Military cyberware at cost', 'Axiom terminal hacks auto-succeed on danger ≤2'] },
+  },
+  ghosts: {
+    enemy:       { label: 'ENEMY',       effects: ['Ghost Network cuts intel flow — terminals yield 50% fewer credits', 'Ghost NPCs refuse all dialogue'] },
+    hostile:     { label: 'HOSTILE',     effects: ['Ghost Network withholds job tips', 'Terminal intel fragments degraded'] },
+    unfriendly:  { label: 'Unfriendly',  effects: ['Ghosts charge information fees at NPCs'] },
+    neutral:     { label: 'Neutral',     effects: [] },
+    friendly:    { label: 'Friendly',    effects: ['Ghost NPCs pass free intel (+1 lore fragment per terminal)', 'Black market job rewards +10%'] },
+    allied:      { label: 'ALLIED',      effects: ['Ghost Network routes: -25% encounter rate in ruins and tunnel zones', 'Terminal hack difficulty reduced by one tier', 'Heist requirement met'] },
+    legend:      { label: 'LEGEND',      effects: ['Full Ghost escort (skip all encounters in Undernet)', 'Terminal hacks in ruins/tunnel: free flat reward', 'Ghost safe passages open in Spire zones'] },
+  },
+  ironhand: {
+    enemy:       { label: 'ENEMY',       effects: ['Ironhand enforcers spawn as enemies in gang/residential chunks', 'Black market prices +30%'] },
+    hostile:     { label: 'HOSTILE',     effects: ['Ironhand NPCs hostile — no quests available', 'Gang turf: +1 encounter danger rating'] },
+    unfriendly:  { label: 'Unfriendly',  effects: ['Ironhand vendors charge 15% more', 'Gang turf jobs unavailable'] },
+    neutral:     { label: 'Neutral',     effects: [] },
+    friendly:    { label: 'Friendly',    effects: ['Gang turf: -20% encounter rate', 'Ironhand vendors: -10% prices', 'Job tip network active'] },
+    allied:      { label: 'ALLIED',      effects: ['Ironhand safe passage: no encounters in gang_turf, industrial, residential', 'Black market prices -20%', 'Stash loot +30% value'] },
+    legend:      { label: 'LEGEND',      effects: ['Ironhand muscle available (auto-win one encounter per zone)', 'All Ironhand-zone encounters blocked', 'Black market exclusive weapons unlocked'] },
+  },
+  medica: {
+    enemy:       { label: 'ENEMY',       effects: ['Medica Ripper Docs refuse augment services', 'Medica-zone healing costs double', 'Bioware catalogue locked'] },
+    hostile:     { label: 'HOSTILE',     effects: ['Medica vendors: +25% on healing items', 'Ripper Docs refuse bioware installation'] },
+    unfriendly:  { label: 'Unfriendly',  effects: ['Healing item prices +10% in Medica-adjacent zones'] },
+    neutral:     { label: 'Neutral',     effects: [] },
+    friendly:    { label: 'Friendly',    effects: ['Medica vendors: -10% on healing items', 'Rest spots in Medica zones heal +20% extra'] },
+    allied:      { label: 'ALLIED',      effects: ['Bioware catalogue unlocked at Medica-aligned Ripper Docs', 'Medica trauma kits: 50% discount', 'Rest spots in Medica zones restore full HP'] },
+    legend:      { label: 'LEGEND',      effects: ['Free trauma kit per rest stop', 'All Medica zone healing free', 'Bioware at cost'] },
+  },
+  meridian: {
+    enemy:       { label: 'ENEMY',       effects: ['Mara and Meridian cells will not assist — safehouse Meridian presence hostile', 'Meridian intel blocked'] },
+    hostile:     { label: 'HOSTILE',     effects: ['Meridian contacts unavailable', 'Safehouse tips from Mara locked'] },
+    unfriendly:  { label: 'Unfriendly',  effects: ['Mara gives minimal information only'] },
+    neutral:     { label: 'Neutral',     effects: [] },
+    friendly:    { label: 'Friendly',    effects: ['Mara shares zone threat assessments before movement', 'Safehouse rest cost -50% in Meridian-active zones'] },
+    allied:      { label: 'ALLIED',      effects: ['Meridian field network: encounters in safehouse chunks impossible', 'Mara gives pre-hack intel (reduces trace speed by 15%)', 'Safe corridors revealed in Undernet'] },
+    legend:      { label: 'LEGEND',      effects: ['Meridian full escort: one free unjack per hack session', 'Safehouse zones are truly safe — no encounters', 'Meridian healer available (full HP restore once per zone)'] },
+  },
+};
+const LEGACY_UNLOCKS = [
+  { id:"ghost_start",   name:"Ghost Start",    desc:"+200 starting credits",       cost:3 },
+  { id:"street_wisdom", name:"Street Wisdom",  desc:"Start with 1 extra MedStim", cost:2 },
+  { id:"fast_hands",    name:"Fast Hands",      desc:"Start with Knife equipped",  cost:3 },
+  { id:"corpo_contact", name:"Corpo Contact",   desc:"+20 Axiom rep on start",     cost:4 },
+  { id:"ghost_network", name:"Ghost Network",   desc:"+20 Ghost rep on start",     cost:4 },
+  { id:"iron_skin",     name:"Iron Skin",       desc:"+10 max HP on start",        cost:5 },
+  { id:"hacker_brain",  name:"Hacker Brain",    desc:"+5 hacking on start",        cost:5 },
+  { id:"void_key",      name:"Void Key",        desc:"Void access from level 1",   cost:8 },
+];
+const HEIST_REQS = { credits:5000, level:8, gear:["neural_hack","ghost_suit"] };
+// Resistance path: underground network support (Ghosts/Meridian/Ironhand ≥60) AND Axiom hostile (≤-25)
+
+const AXIOM_HEIST_REQS = { credits:3000, level:8, gear:["cortex_relay"] };
+// Axiom path: Axiom Allied+ (≥80), Meridian hostile (≤-60), Cortex Relay augment installed
+
+const rollDice = (min, max) => Math.floor(Math.random() * (max - min + 1)) + min;
+
+let SESSION_LEGACY = { points:0, unlocks:[], achievements:[], bestRun:null, totalRuns:0, wins:0 };
+try { if (window._nkLegacy) SESSION_LEGACY = window._nkLegacy; } catch(e) {}
+
+// ── ACHIEVEMENT CATALOG ──
+const ACHIEVEMENTS = [
+  // ── MASTERY ──
+  { id:'first_blood',     name:'Edgerunner',           pts:3, icon:'◈', color:'#ffd700', category:'MASTERY',
+    desc:'Win a run.',
+    flavor:'"The city has a word for what you are now. It\'s not a compliment. You\'re using it anyway."' },
+  { id:'born_chrome',     name:'Prior Occupant',        pts:3, icon:'✦', color:'#00e5ff', category:'MASTERY',
+    desc:'Win a run with 5 or more augments installed.',
+    flavor:'"The ripper stopped asking after the third slot. The person who came in with all their original parts still technically exists somewhere in the paperwork."' },
+  { id:'clean_hands',     name:'The Meat',              pts:5, icon:'○', color:'#69ff47', category:'MASTERY',
+    desc:'Win a run with zero augments.',
+    flavor:'"No chrome. No implants. No firmware. Just the body the city told you wasn\'t enough. The city was wrong."' },
+  { id:'flatline_run',    name:'Running On Static',     pts:4, icon:'▼', color:'#ff4444', category:'MASTERY',
+    desc:'Trigger the heist at 10 HP or less.',
+    flavor:'"Single digit HP. Flatline adjacent. The city had you counted. You didn\'t check the count."' },
+  { id:'survivor',        name:'Cleared',               pts:2, icon:'◆', color:'#ff9800', category:'MASTERY',
+    desc:'Reach level 8 in any run.',
+    flavor:'"Level eight. Credits. Gear. Rep. The city\'s checklist. You met every line."' },
+  { id:'all_four',        name:'Format Shift',          pts:5, icon:'◉', color:'#e040fb', category:'MASTERY',
+    desc:'Win a run with each of the four archetypes.',
+    flavor:'"Ghost. Soldier. Netrunner. Fixer. The city thought it knew what you were. It never figured out you were all of them."' },
+  // ── ARCHETYPE ──
+  { id:'ghost_protocol',  name:'Delta',                 pts:2, icon:'◌', color:'#69ff47', category:'ARCHETYPE',
+    desc:'Win as a Ghost.',
+    flavor:'"They never logged your entry. They still don\'t have your exit. You were never there."' },
+  { id:'iron_will',       name:'Wetware',               pts:2, icon:'▶', color:'#ff9800', category:'ARCHETYPE',
+    desc:'Win as a Soldier.',
+    flavor:'"Axiom Corp had a hundred ways to stop you. You had one. It worked."' },
+  { id:'deep_net',        name:'Meat Optional',         pts:2, icon:'⌬', color:'#00e5ff', category:'ARCHETYPE',
+    desc:'Win as a Netrunner.',
+    flavor:'"HP:60. The lowest survivability in the city. You won anyway. The body was always beside the point."' },
+  { id:'street_deal',     name:'The Artiste',           pts:2, icon:'¢', color:'#ffd700', category:'ARCHETYPE',
+    desc:'Win as a Fixer.',
+    flavor:'"Every faction thought they had you. You had all of them. Artiste of the slightly funny deal."' },
+  // ── NARRATIVE ──
+  { id:'humanity_intact', name:'Your Body, Your Call',  pts:3, icon:'♥', color:'#69ff47', category:'NARRATIVE',
+    desc:'Win with humanity 8 or higher.',
+    flavor:'"The firmware never got a foothold. Every modification was yours. Every choice was yours. That\'s the whole point."' },
+  { id:'on_the_edge',     name:'The Body Was Meat',     pts:3, icon:'♦', color:'#ff4444', category:'NARRATIVE',
+    desc:'Win with humanity 2 or lower.',
+    flavor:'"By the end you were more machine than person by most clinical measures. The part that pulled it off — you\'re not sure which part that was."' },
+  { id:'sync_war',        name:'No Entry',              pts:2, icon:'◈', color:'#00e5ff', category:'NARRATIVE',
+    desc:'Win with the Sync Blocker Mesh augment installed.',
+    flavor:'"The Sync logged every augment, every hack, every credit transaction in Neo-Kairo. It has no record of you. You\'d like to keep it that way."' },
+  { id:'full_dossier',    name:'Square With Everyone',  pts:4, icon:'≡', color:'#ffd700', category:'NARRATIVE',
+    desc:'Complete all four sidequests in a single run.',
+    flavor:'"Rusty. Nadia. Doc Membrane. Kite. Everyone carrying something the city put on them. You showed up for all of it."' },
+  { id:'personal',        name:'What You Came For',     pts:3, icon:'◈', color:'#e040fb', category:'NARRATIVE',
+    desc:'Use the backstory-specific dialogue choice in your contact\'s sidequest.',
+    flavor:'"At some point the job stopped being the reason. This was always the reason. You just finally said so."' },
+  // ── EXPLORATION ──
+  { id:'deep_city',       name:'All The Way Down',      pts:2, icon:'≡', color:'#ff9800', category:'EXPLORATION',
+    desc:'Visit all four layers in a single run.',
+    flavor:'"Street level. Undernet. Spire Base. The Void. Neo-Kairo from the ground up. You went to all of it."' },
+  { id:'undernet',        name:'Hard Boiled',           pts:2, icon:'▼', color:'#555570', category:'EXPLORATION',
+    desc:'Enter a danger-4 zone and survive the run.',
+    flavor:'"The deep city wanted to keep you. You left anyway. That\'s what hard means."' },
+  { id:'void_walker',     name:'Jacked In',             pts:3, icon:'◆', color:'#e040fb', category:'EXPLORATION',
+    desc:'Reach layer 3 (the Void) in any run.',
+    flavor:'"Not many go into the Void on purpose. Not many come back. You did both."' },
+  // ── FAILURE ──
+  { id:'bounty_claimed',  name:'Zeroed',                pts:1, icon:'⚠', color:'#ff4444', category:'FAILURE',
+    desc:'Be killed by a Bounty Hunter.',
+    flavor:'"Someone paid for it. Someone always pays for it. The city logged the transaction and moved on."' },
+  // ── META ──
+  { id:'ten_runs',        name:'Signal Persists',       pts:2, icon:'◉', color:'#555570', category:'META',
+    desc:'Complete 10 runs — wins or deaths.',
+    flavor:'"Ten runs. The city has killed you, or tried to, more times than you can count. You\'re still transmitting. Annoying, from Neo-Kairo\'s perspective."' },
+];
+
+// Which legacy unlocks require an achievement first
+const UNLOCK_GATES = {
+  void_key:    'first_blood',   // must win once
+  iron_skin:   'survivor',      // must reach LV8
+  hacker_brain:'survivor',      // must reach LV8
+};
+
+// Evaluate which new achievements were earned at end of run
+function checkAchievements(char, isWin, killedBy) {
+  const existing = new Set(SESSION_LEGACY.achievements || []);
+  const newlyEarned = [];
+  const check = (id, condition) => {
+    if (!existing.has(id) && condition) newlyEarned.push(id);
+  };
+
+  // Mastery
+  check('first_blood',    isWin);
+  check('born_chrome',    isWin && (char.augments||[]).length >= 5);
+  check('clean_hands',    isWin && (char.augments||[]).length === 0);
+  check('flatline_run',   isWin && (char.hp || 0) <= 10);
+  check('survivor',       (char.level || 1) >= 8);
+  const wonArchetypes = new Set([...(SESSION_LEGACY.wonArchetypes||[]), ...(isWin ? [char.archetype] : [])]);
+  check('all_four',       isWin && wonArchetypes.size >= 4);
+
+  // Archetype wins
+  check('ghost_protocol', isWin && char.archetype === 'ghost');
+  check('iron_will',      isWin && char.archetype === 'soldier');
+  check('deep_net',       isWin && char.archetype === 'netrunner');
+  check('street_deal',    isWin && char.archetype === 'fixer');
+
+  // Narrative
+  check('humanity_intact',isWin && (char.humanity||10) >= 8);
+  check('on_the_edge',    isWin && (char.humanity||10) <= 2);
+  check('sync_war',       isWin && (char.augments||[]).includes('sync_blocker'));
+  check('full_dossier',   isWin && (char.questsCompleted||[]).length >= 4);
+  check('personal',       isWin && (char.usedBackstoryChoice || false));
+
+  // Exploration
+  check('deep_city',      (char.layersVisited||new Set()).size >= 4 || (char.layersVisitedArr||[]).length >= 4);
+  check('undernet',       (char.reachedDanger4 || false));
+  check('void_walker',    (char.reachedLayer3 || false));
+
+  // Failure
+  check('bounty_claimed', !isWin && killedBy === 'Bounty Hunter');
+
+  // Meta
+  check('ten_runs',       (SESSION_LEGACY.totalRuns + 1) >= 10);
+
+  return { newlyEarned, wonArchetypes: Array.from(wonArchetypes) };
+}
 
 // ── PERSISTENT STORAGE HELPERS ──
 const SAVE_KEY_CHAR   = 'nk_char_save';
@@ -1777,11 +2960,669 @@ function getStartingRepPreview(archetypeId, backstoryId, legacyUnlocks) {
 }
 
 // ── RECURRING NPCs ──
+const NPCS = {
+  Rusty: {
+    name: 'Rusty',
+    role: 'Fixer',
+    faction: 'ironhand',
+    location: 'undernet',
+    desc: 'Chrome left hand — iron-coloured, industrial surplus, repaired twice with parts that don\'t quite match. The hand predates the Sync by a decade. Unsynced: can\'t afford it is the official story, and that story has the advantage of being partly true. The real reason is what happened to the Skill Transfer cohort in \'81 — the factory workers who did everything right, trained for years, and watched their expertise get loaded into a Sync update in eighteen months. Rusty knew three of them. He deals in favours and information and has a specific, patient anger with a specific date attached to it. The code he operates by isn\'t explained because it doesn\'t need to be. It\'s visible in what he won\'t do.',
+    greetings: [
+      '"You again. Good. I have work."',
+      '"Don\'t stand in the doorway. Sit down. You look like a target."',
+      '"Word travels. What you did — people noticed."',
+      '"You look worse than last time. That\'s promising."',
+    ],
+    tipRipper: '"You need chrome if you\'re going to survive down here. Not optional. Find the ✦ marker on the map — that\'s a ripper doc. Unlicensed. Doesn\'t ask questions. Worth the cost."',
+    tipBroker: '"If you\'re running hacks without software, you\'re doing it the hard way. Find the ⌬ marker — net broker. Black market or deep underground. Basic programs for cheap. Don\'t skip it."',
+    jobContext: [
+      'Rusty slides a chip across the table without looking up. "Don\'t ask where it goes. Just get it there."',
+      '"My client doesn\'t want to know your name. Don\'t volunteer it." He finally looks at you. "Clean work only."',
+      '"This one\'s personal for me. Which means if it goes wrong, we never had this conversation."',
+    ],
+  },
+  Nadia: {
+    name: 'Nadia Chrome',
+    role: 'Information broker',
+    faction: 'ghosts',
+    location: 'neon_streets',
+    desc: 'Runs a bar that is a listening post. Synced — Ghost Network pragmatist: she took the install for operational advantage and has spent four years deciding whether that was the right call. The bar gives her cover; the Sync gives her an edge on every faction contact who walks in. She charges for truth and distributes plausible lies for free. The private worry she doesn\'t discuss: she\'s been watching what firmware updates do to the people she works with over time, and she\'s been on the update grid for four years, and she can\'t read her own change logs from the outside. She does her best work when she stops thinking about that.',
+    greetings: [
+      '"The bar\'s closed. The back room isn\'t. Sit."',
+      '"You\'ve been busy. I\'ve been watching."',
+      '"Don\'t order anything. Just talk."',
+    ],
+    tipRipper: '"You\'re running soft. The ✦ tile — ripper doc. Body modifications, off the Axiom grid. Find one early. Chrome is the difference between a run that ends badly and one that doesn\'t end at all."',
+    tipBroker: '"The ⌬ marker is a net broker. Software dealer, no registration, no logs. If you\'re hitting Axiom terminals without programs loaded you\'re losing credits you don\'t have to lose."',
+    jobContext: [
+      'She writes nothing down. "The target leaves the Spire at 21:00. After that, you\'re on your own timing."',
+      '"This is the kind of job that changes your reputation permanently. You ready for that?"',
+      '"My source says the package is where I told you. My source has been wrong before. That\'s why I\'m hiring you and not going myself."',
+    ],
+  },
+  'Doc Mem': {
+    name: 'Doc Membrane',
+    role: 'Black market medic',
+    faction: 'medica',
+    location: 'undernet',
+    desc: 'Lost her licence for asking too many questions about the CortexSync trial data — specifically, the consent documentation on the sump-sector subjects. Now patches people who can\'t go to a hospital and performs Sync extractions Axiom says cause fatal neural cascade. Her survival rate is 100%. She does not discuss her methods, partly from professional habit and partly because the knowledge base she draws on has a history she has thought about more carefully than most people could bear to. The care is real. She has not resolved what that means alongside everything else she knows. She stopped trying to resolve it about three years ago.',
+    greetings: [
+      '"Sit still. I\'m going to hurt you, but I\'ll explain what I\'m doing."',
+      '"You\'re not as bad as you look. That\'s either good news or you\'ve gotten used to it."',
+      '"I don\'t ask about the wounds. Just the allergies."',
+    ],
+    tipRipper: '"You know what a ripper doc is? Same as me, different speciality. They install augments — body mods, off Axiom\'s firmware register. Look for the ✦ on the map. Go when you have credits. Go before you need to."',
+    tipBroker: '"I patch bodies. For the software side, find a net broker — the ⌬ marker. Underground or black market. They sell hacking programs. If you\'re running terminals without them, you\'re working blind."',
+    jobContext: [
+      'She doesn\'t look up from her work. "Someone in the Spire has something I need. Medical data. Lives depend on it. Literally — I have a list."',
+      '"The patient who told me this died before I could help them. You\'re the next best thing."',
+    ],
+  },
+  Aria: {
+    name: 'Aria-7',
+    role: 'Axiom defector / AI fragment',
+    faction: 'ghosts',
+    location: 'spire_base',
+    desc: 'CortexSync-implanted Axiom analyst who defected eighteen months ago. Runs three separate identities — the original, the cover, and a third she built after the first two became indistinguishable. The Sync is still in her. Still updating. She cannot read her own firmware logs and she cannot know what the updates have written into the person doing the defecting. She tells herself the one who defected was the real one. She thinks about that sentence more than she tells anyone. The work is real. The cause is real. She is less certain every month which thoughts in her head she generated herself.',
+    greetings: [
+      '"I\'ve been allocated fourteen minutes before my next scheduled check-in. Talk fast."',
+      '"The cameras in this corridor are on a loop. We have ninety seconds."',
+      '"Don\'t look at me like you know me. You don\'t. Not yet."',
+    ],
+    tipRipper: '"You\'ll need hardware to get into the Spire. The ✦ tile is a ripper doc — augment installation, no Axiom registration. The neural_hack augment is mandatory for what you\'re planning. Find one. Soon."',
+    tipBroker: '"Hacking Axiom terminals without software is survivable at low danger. It won\'t be later. The ⌬ marker is a net broker — software programs that change how hacks work. Find one before you go deep."',
+    jobContext: [
+      '"Level four clearance gets you to the server room. Level five gets you out. I can give you one of those."',
+      '"What they\'re doing in the basement isn\'t classified. It\'s just never been discovered. That\'s different."',
+      '"You\'re Division Seven. Or you were. That file doesn\'t close. Let\'s talk about what you still have access to."',
+      '"Reyes has your name. Whether that\'s a problem or an opportunity depends entirely on what you do in the next forty-eight hours."',
+    ],
+    corpoGreetings: [
+      '"I wasn\'t expecting Division Seven. Or whatever you are now. Sit down."',
+      '"You\'re not here for me. You\'re here because Reyes hasn\'t decided what to do with you yet. Smart."',
+      '"The restructure wasn\'t about budget. You already know that. Question is what you want to do about it."',
+    ],
+  },
+  Kite: {
+    name: 'Kite',
+    role: 'Street intelligence',
+    faction: null,
+    location: 'neon_streets',
+    desc: 'Fourteen years old. Carries messages nobody else will and knows every checkpoint rotation in the mid-layer with a precision that reads as intuition and isn\'t. Two years ago, at twelve, she got a black-market Sync install — no parental consent, no Axiom registration, paid for it herself with eighteen months of running jobs. She has not told anyone. The timing recall is perfect memory, not instinct. She does not know what the install is doing to a brain that was still forming when it went in. She has decided not to think about it, which is itself a thing the Sync might have decided for her.',
+    greetings: [
+      '"Five credits for what I know. Three if you figure it out yourself. Up to you."',
+      '"You\'re the one who\'s been making noise in the Undernet. Everyone knows."',
+      '"I don\'t carry weapons. I carry information. Harder to take off a dead body."',
+    ],
+    tipRipper: '"The ✦ tile is a ripper doc. They do augments — chrome, no questions, no Axiom registry. You\'ll want the reflex or subdermal stuff if you\'re doing what I think you\'re doing."',
+    tipBroker: '"See the ⌬ marker? Net broker. They sell programs for hacking. Ghost Thread\'s the one worth buying first — absorbs your first mistake. Trust me on that."',
+    jobContext: [
+      '"Someone dropped this job because they got scared. I don\'t get scared. But I also can\'t get past the checkpoint. You can."',
+      '"The guy who posted this disappeared two days ago. The job\'s still good though. I checked."',
+    ],
+  },
+  Mara: {
+    name: 'Mara',
+    role: 'Meridian cell coordinator',
+    faction: 'meridian',
+    location: 'safehouse',
+    desc: 'Meridian cell coordinator. At ground level this means safehouses, corridors, mutual aid that actually works — healthcare that doesn\'t generate debt, community that doesn\'t require a product. That part is real and she believes in it without qualification. The other part — the Seat, the experiments, the long game running above the layer most members can see — she knows more about than she has said to anyone in this room, and less than she sometimes thinks she does. She works with you because she needs a runner who operates outside Meridian\'s structure. The distinction between needing you and trusting you is one she maintains carefully. So should you.',
+    greetings: [
+      '"You\'re still alive. I\'m not deciding yet whether that\'s good news."',
+      '"I don\'t ask where you\'ve been. I assume it was necessary."',
+      '"Meridian keeps the lights on in here. That\'s enough. Sit down."',
+      '"I\'ve got three other problems right now. You\'re the fourth. What do you need?"',
+    ],
+    tipRipper: '"There\'s a ripper doc in the lower sector — ✦ on the map. Meridian doesn\'t endorse augments. We endorse staying alive. Get what you need to do the job."',
+    tipBroker: '"Net broker — ⌬. We route intel through their networks sometimes. They sell programs you\'ll need for terminal work. Don\'t tell them Meridian sent you."',
+    jobContext: [
+      '"I need this done without a body count if possible. I know that\'s not your style. Try anyway."',
+      '"The person who had this job before you is in the clinic. I need someone who makes better choices."',
+      '"This touches Axiom infrastructure. If it goes wrong, I will deny this conversation happened. Are we clear?"',
+    ],
+  },
+  Voss: {
+    name: 'Voss',
+    role: 'Ironhand elder',
+    faction: 'ironhand',
+    location: 'gang_turf',
+    desc: 'Ran the east factory line for twenty-two years before Axiom bought the plant and introduced Sync-optimised quotas. Didn\'t get Synced. Didn\'t leave. Watched his crew shrink to nothing. Now he sits in the same block and talks to anyone who will listen. He carries a 2060 military-issue shoulder brace on his left arm — border campaign hardware, titanium-and-polymer composite, the kind of thing you can\'t get parts for anymore. He maintains it himself with a toolkit he\'s had for fifteen years. The brace doesn\'t enhance combat performance. It just holds a shoulder that was rebuilt badly in a field tent in \'67 and has been deteriorating at a known rate ever since. He has a very specific, very patient anger and a memory for faces. The builders in the industrial zone come to him when they need to know how things were before.',
+    greetings: [
+      '"You look like someone who hasn\'t decided what side they\'re on yet. Sit. I\'ll tell you about sides."',
+      '"My crew used to be forty people. You want to know where they are now? I\'ll tell you. Every one."',
+      '"The Sync didn\'t take the jobs. It just made the jobs impossible to keep without it. That\'s the part they never say out loud."',
+      '"You\'re still breathing. That means something down here."',
+    ],
+    lore: [
+      '"Axiom bought the factory in \'81. First thing they did was run a \'productivity study\'. Second thing they did was mandate Sync for anyone who wanted a senior position. Third thing: redefine \'senior\' to include everyone but the sweepers."',
+      '"The Ironhand started as a mutual aid network. People looking after each other when the work dried up. The violence came later. It comes later everywhere."',
+      '"People think unsynced means stupid. We process slower in the overlay. We don\'t have the tactical feed. What we have is — we notice things. Things the overlay doesn\'t flag because it wasn\'t built to care about them."',
+      '"Eight years ago you could walk into any factory in the industrial block and half the crew were flesh. Now it\'s maybe five percent. The machines didn\'t replace them. The Sync did."',
+    ],
+    jobContext: [
+      '"I need someone outside Ironhand for this. Someone Axiom isn\'t tracking. You\'re it."',
+      '"There\'s a name I need you to find. Not to hurt them. To warn them. There\'s a difference."',
+    ],
+    tipRipper: '"✦ is a ripper doc. They\'re good people. Mostly. Get chrome if you need it — but stay yourself underneath. That\'s the part that matters."',
+    tipBroker: '"⌬ is the net broker. They know things about the Sync that even Axiom doesn\'t publish. Worth a visit even if you don\'t need programs."',
+  },
+  Petra: {
+    name: 'Petra Nine',
+    role: 'Meridian courier',
+    faction: 'meridian',
+    location: 'residential',
+    desc: 'Runs packages between Meridian safehouses. Never the same route twice. Has memorised seventeen evacuation corridors in the mid-layer and can walk any of them in complete darkness. She\'s cheerful in a way that initially reads as shallow and is actually a professional choice — people don\'t search cheerful people carefully.',
+    greetings: [
+      '"Oh good, you\'re not Axiom. You have no idea how often I have to check."',
+      '"I just came from the east side. Everything is fine. Completely fine. Definitely fine."',
+      '"Mara said you might come through here. She said you were \'functional\'. High praise from her."',
+      '"Quick question: do you know a route through the industrial block that doesn\'t pass the north checkpoint? I\'m asking for a friend. I\'m the friend."',
+    ],
+    lore: [
+      '"I\'ve been running packages since I was sixteen. Back then it was just information. Now it\'s people. Same routes, different cargo. Heavier in different ways."',
+      '"Meridian doesn\'t have an ideology, technically. But Mara says \'people should be able to move\'. I think that\'s close enough."',
+      '"The checkpoints are harder in the residential blocks than the industrial ones. You\'d think it would be the other way. It isn\'t. Home is where they watch you most."',
+      '"I\'ve met a lot of runners. The ones who last aren\'t the strongest. They\'re the ones who know three ways out of every room before they walk in."',
+    ],
+    jobContext: [
+      '"I need a second person on this one. Two packages, two routes, same window. You take one. I take one. We don\'t ask each other what\'s inside."',
+      '"The person I\'m moving needs to reach the tunnels by 03:00. I need someone watching the north approach while I handle the south."',
+    ],
+    tipRipper: '"Ripper doc — ✦. I know the one in the lower sector personally. She\'s good. Ask for the non-Axiom catalogue."',
+    tipBroker: '"⌬ is the net broker. They keep their inventory off every registry that matters. Worth knowing."',
+  },
+  Sable: {
+    name: 'Sable',
+    role: 'Unsynced street presence',
+    faction: null,
+    location: 'ruins',
+    desc: 'No chrome. No Sync. Nothing installed, nothing extracted — has never had either. Sits in the ruins every day and talks to whoever stops. Former academic, maybe — the vocabulary suggests it. Whatever happened to the institution is not something she discusses. She\'s a lore node: she knows the history of Neo-Kairo before Axiom, and she gives it away for free.',
+    greetings: [
+      '"You\'re in a hurry. Sit for five minutes. The city will still be burning when you leave."',
+      '"I don\'t sell anything. I don\'t want anything from you. That surprises people."',
+      '"You look like you\'ve been making decisions. How\'s that going?"',
+      '"Most people who come through here are running from something. That\'s fine. You can run and still have a conversation."',
+    ],
+    lore: [
+      '"Neo-Kairo was built on a flood plain. The original city went under in \'57. What\'s here now is the second version, built faster and cheaper by people who knew they\'d need to do it again. The Spire is the only thing they built to last. That tells you something about priorities."',
+      '"The Humanist movement started before Axiom, actually. It was originally about something else — attention economics, cognitive autonomy, that kind of thing. Axiom gave it a concrete enemy. Movements need enemies to survive. I\'m not sure if that\'s a criticism."',
+      '"CortexSync isn\'t new technology. The first commercial version rolled out in \'74. The firmware update clause was in the original terms of service. Nobody read the terms of service."',
+      '"There\'s a part of the Undernet called the Archive. Ghost Network runs it. Everything Axiom has ever tried to delete lives down there. The city\'s real history. They\'ve been trying to find it for four years."',
+      '"I was at a Humanist conference in \'78. Four hundred people. Unsynced, all of them. Axiom bought the venue three months later and had it rezoned. I don\'t know what that proves but I think about it."',
+    ],
+    tipRipper: '"I don\'t do chrome. But if you\'re going to — the ✦ on the map. They\'re careful. That matters more than their rates."',
+    tipBroker: '"⌬ is the net broker. They\'re doing interesting work. Even if you don\'t need software, the conversations are worth having."',
+  },
+  Hex: {
+    name: 'Hex',
+    role: 'Ghost Network technician',
+    faction: 'ghosts',
+    location: 'tunnel',
+    desc: 'Maintains the terminal infrastructure the Ghost Network uses to route data through the Undernet. Permanently jacked in during working hours, which is most hours. Has opinions about firmware architecture that she will share if you ask, and sometimes if you don\'t. Synced — Ghost Network pragmatist position, uses the Sync to work faster and considers it a tool, not an identity.',
+    greetings: [
+      '"Give me thirty seconds, I\'m in the middle of something." [Twenty seconds pass.] "Okay. What do you need?"',
+      '"You\'re not Axiom. Good. I hate having to be polite to Axiom."',
+      '"The terminal three blocks north just went hot. Axiom sweep. You weren\'t near it, were you? Good. Don\'t be."',
+      '"I\'ve been awake for twenty-six hours. I\'m fine. I have been fine at every hour of the last twenty-six. What do you need?"',
+    ],
+    lore: [
+      '"The Axiom terminal network has forty-three thousand nodes across Neo-Kairo. We have access to eleven hundred of them. Ghost Network has been patient. The access keeps growing."',
+      '"Firmware update 7-C — the one people are scared of — isn\'t a preference update. I\'ve read the architecture. It\'s a preference-update delivery system. The payload comes in the next batch. Axiom hasn\'t pushed it yet. We\'re watching."',
+      '"People think hacking is about getting in. It\'s about staying invisible while you\'re in. Anyone can break a door. The skill is closing it behind you so no one knows you were there."',
+      '"The Archive isn\'t one place. It\'s distributed across six hundred endpoints. Ghost Network built it that way so Axiom can\'t wipe it. To destroy the Archive, they\'d have to destroy their own infrastructure. They know that. We know they know that."',
+    ],
+    jobContext: [
+      '"I need a physical presence at a terminal I can\'t reach remotely. You go there. I walk you through it. Split the take."',
+      '"Someone is running a trace on a Ghost Network courier. I need the trace cancelled. Physically. At the source terminal."',
+    ],
+    tipRipper: '"✦ is a ripper doc. If you\'re doing terminal work, get the neural_hack augment. Non-negotiable. Find one."',
+    tipBroker: '"⌬ net broker. I know their inventory. Tell them Hex sent you and they\'ll show you the unlisted catalogue. Worth it."',
+  },
+  Dixon: {
+    name: 'Dixon',
+    role: 'Axiom Division Seven liaison',
+    faction: 'axiom',
+    location: 'corporate',
+    desc: "Eleven years in Axiom procurement, last three in Division Seven. Wears no insignia. Does not record meetings. Has a talent for finding useful people before they become expensive problems and making sure the arrangement works for everyone involved. Believes in the system the way people believe in weather — not because it is good, but because it is the operating condition.",
+    greetings: [
+      "\"You were referred. I don't take meetings without a referral. We can proceed.\"",
+      "\"I've read your file. The version we have access to, anyway. You're more interesting than it suggests.\"",
+      "\"This conversation didn't happen. The job is real. The credit transfer is real. Everything else is administrative.\"",
+      "\"Division Seven doesn't have an HR department. What we have is a very specific kind of opportunity.\"",
+    ],
+    tipRipper: "\"Military-grade augments require Allied standing. The ✦ marker — find an Axiom-affiliated doc if you want the full catalogue. Standard chrome is available anywhere. The good stuff isn't.\"",
+    tipBroker: "\"Software gives you options in the Spire. The ⌬ marker is a broker. Get something that handles high-security terminals before you go upstairs.\"",
+    jobContext: [
+      "\"Axiom needs this done quietly. That means not through official channels. That means you.\"",
+      "\"The contract is off-registry. The payment is immediate. You ask the right questions, not the wrong ones.\"",
+      "\"Division Seven identifies assets who operate effectively in grey areas. You've been operating in one. We noticed.\"",
+      "\"This isn't enforcement. It's acquisition. The distinction matters to the people involved.\"",
+    ],
+    lore: [
+      "\"CortexSync is an infrastructure project. Like roads. Like water. The preference updates are maintenance. What maintenance does to the person receiving it is outside my department.\"",
+      "\"The export timeline is real. Neo-Kairo is the proof of concept. If it works here, it rolls out globally. The math on that is not complicated.\"",
+      "\"Ghost Network isn't the opposition. They're the friction. Friction is manageable. What worries Division Seven is something else — people who understand the system well enough to use it against itself.\"",
+      "\"Operation Zero Export is not a secret. It's just not been announced. There's a distinction between those two things that most people can't hold.\"",
+    ],
+  },
+  Reyes: {
+    name: 'Director Reyes',
+    role: 'Axiom Division Seven director',
+    faction: 'axiom',
+    location: 'corporate',
+    desc: "Head of Division Seven. Responsible for the Neo-Kairo CortexSync rollout and the Zero Export timeline. Has a reputation for finding assets before they become threats and threats before they become problems. Has built a career on being three decisions ahead. Does not meet with contractors directly. Except when she does.",
+    greetings: [
+      "\"I don't take these meetings. Today is an exception. I want you to think about why.\"",
+      "\"You've been making interesting choices. I prefer interesting choices to predictable ones. Usually.\"",
+      "\"I know what you've done and I know what you want to do. The question is whether those two things can coexist.\"",
+    ],
+    tipRipper: null,
+    tipBroker: null,
+    jobContext: [
+      "\"Zero Export needs someone who understands both sides of this city. You do. That's either useful or it's a problem.\"",
+      "\"The Ghost Network has intelligence we need neutralised before the export timeline. You have access they don't know about. We do.\"",
+    ],
+    lore: [
+      "\"Neo-Kairo doesn't have a governance problem. It has a compliance problem. The firmware addresses compliance. The export addresses scale. The people who call it control are the same people who call roads control.\"",
+      "\"I've read every Ghost Network intercept for three years. They believe they're protecting something. They're protecting the right to be unreadable. That's not the same as freedom. I've noticed they never explain the difference.\"",
+    ],
+  },
+  Yuki: {
+    name: 'Yuki',
+    role: 'Medica field medic',
+    faction: 'medica',
+    location: 'sump',
+    desc: 'Runs a mobile clinic out of two bags and a pre-loaded credchip. Works the Sump and lower industrial block where Medica\'s fixed clinics don\'t reach. Has a calm that reads as detachment but is actually precision — she doesn\'t have the space to panic, so she doesn\'t. Has been doing this for four years and has a very dry sense of what constitutes a crisis.',
+    greetings: [
+      '"You\'re upright. That\'s the first diagnostic. What\'s the second complaint?"',
+      '"I\'ve patched worse today. Sit down."',
+      '"I\'m not a philosopher. I\'m a medic. If you\'re bleeding, I can help. If you\'re having an existential crisis, I can refer you to someone."',
+      '"You look functional. \'Functional\' is my favourite medical outcome."',
+    ],
+    lore: [
+      '"Medica doesn\'t have an official position on the Sync. The cartel serves everyone. Synced, unsynced, extracted — doesn\'t matter. We just see more extraction complications than we used to. The demand is up."',
+      '"The bioware Axiom won\'t certify isn\'t because it doesn\'t work. Most of it works better than the certified equivalent. It\'s because they can\'t install a firmware update in it. That\'s the whole thing. That\'s always the whole thing."',
+      '"I treat Ironhand, Ghosts, Axiom defectors, Meridian couriers, corpo employees having second thoughts. The body doesn\'t care who\'s paying for the insurance."',
+      '"Extraction survival rate is now seventy-one percent full recall. We lost twenty-nine percent to varying degrees of memory gap. We\'re working on it. The problem isn\'t the surgery. It\'s what Axiom writes into the architecture before you get to us."',
+    ],
+    jobContext: [
+      '"I need medical supplies from an Axiom distribution hub. They won\'t miss them. The people who need them are three blocks from here."',
+      '"There\'s a patient I\'m trying to reach in the industrial block. Axiom has the checkpoint locked. I need someone to get me through."',
+    ],
+    tipRipper: '"✦ — ripper doc. Different specialty than me. If you need augments installed, find one early. Don\'t wait until you need them yesterday."',
+    tipBroker: '"⌬. Net broker. They sometimes carry pharmaceutical data I can use. If you\'re going that way, pick up anything tagged \'bioware-adjacent\'. I\'ll compensate you."',
+  },
+};
+
+// Assign NPCs to backstory contacts
+const getNPCForBackstory = (backstoryId) => {
+  const map = { debt: 'Rusty', witness: 'Nadia', exile: 'Aria', ghost: 'Doc Mem', corpo: 'Aria' };
+  return map[backstoryId] || 'Rusty';
+};
+
+// ── NARRATIVE EVENT POOL ──
+// Non-repeating per run. Pool-based. Some backstory-aware.
+// Phase: 'early' (0-4 chunks), 'mid' (5-12), 'late' (12+)
+const NARRATIVE_EVENTS = {
+  early: [
+    { id:'ne_01', msg: (c) => `You pass a wall of missing-person notices. Half of them are dated from the month Axiom opened the CortexSync employment programme.`, color: '#888899' },
+    { id:'ne_02', msg: (c) => `A woman tries to sell you a neural-scrub token. Says it blocks your Sync's location ping for twenty minutes. You can't tell if she believes it works.`, color: '#888899' },
+    { id:'ne_03', msg: (c) => `The rain is warm. You stopped noticing that a long time ago. The Synced around you have weather alerts in their overlay and don't look up at all.`, color: '#555570' },
+    { id:'ne_04', msg: (c) => `Someone has painted STAY HUMAN across the entire side of a building. The drones are already on the way. The paint is still wet.`, color: '#9090a0' },
+    { id:'ne_05', msg: (c) => `A corpo patrol moves through the market. The Synced vendors get advance warning through their overlay. The unsynced ones just see them and react.`, color: '#888899' },
+    { id:'ne_06', msg: (c) => `The checkpoint has two queues now. Synced, fifteen seconds. Unsynced, however long it takes. The sign says PROCESSING TIME MAY VARY.`, color: '#555570' },
+    { id:'ne_07', msg: (c) => c.backstory === 'ghost' ? `Your extraction scar itches. It does that sometimes. Doc Mem said it would stop. It hasn't yet.` : `An anonymous message on your contact chip: "Firmware batch 7-C is a preference update. Not a security patch." No sender. No follow-up.`, color: '#e040fb' },
+    { id:'ne_08', msg: (c) => c.backstory === 'debt' ? `You pass the Axiom employment centre where she signed the CortexSync contract. The intake queue is twelve people long. You walk faster.` : `Outside an Axiom employment centre: a queue. The intake form includes a CortexSync installation waiver. Some people read it. Most sign without reading.`, color: '#888899' },
+    { id:'ne_09', msg: (c) => `A kid runs past you with a package. Three Axiom security follow. The kid is faster. They're not Synced yet — still running on instinct and luck.`, color: '#888899' },
+    { id:'ne_10', msg: (c) => c.backstory === 'exile' ? `You pass a building with an Axiom firmware division insignia. You worked in one like it. You keep walking and don't let your pace change.` : `The air down here tastes different. Like something is always about to burn. The Synced don't seem to notice. Maybe the overlay filters it.`, color: '#555570' },
+  ],
+  mid: [
+    { id:'nm_01', msg: (c) => `Word in the Undernet: a Ghost Network node went dark last night. Nobody's saying how. Everybody's speculating.`, color: '#69ff47' },
+    { id:'nm_02', msg: (c) => `You find a dead corpo — no ID, no badge, no visible cause. Someone cleaned this up in a hurry. They missed the exit wound.`, color: '#888899' },
+    { id:'nm_03', msg: (c) => `A broadcast cuts through on all frequencies for twelve seconds: "NEO-KAIRO BELONGS TO ITS PEOPLE." Then static. Axiom traces it in eleven.`, color: '#e040fb' },
+    { id:'nm_04', msg: (c) => c.backstory === 'witness' ? `Someone found footage. Not yours — different incident, different district. Axiom buried it in four minutes. They're getting faster.` : `Axiom buried a news story in four minutes today. People are counting. The number keeps going down.`, color: '#888899' },
+    { id:'nm_05', msg: (c) => `The Ironhand gang has pulled back from two districts without explanation. The vacuum is filling with Axiom security. That's never a coincidence.`, color: '#ff5722' },
+    { id:'nm_06', msg: (c) => `You see a face on a wanted broadcast. LV${c.level > 3 ? Math.floor(c.level/2) : 2} street contact. The bounty is higher than you expected. Someone is cleaning house.`, color: '#ff4444' },
+    { id:'nm_07', msg: (c) => `A Medica Cartel clinic is shuttered. Axiom zoning violation, says the notice. The people who used it for extractions have nowhere to go now. They haven't left yet.`, color: '#ff4081' },
+    { id:'nm_08', msg: (c) => `You hear ${c.kills > 5 ? 'your own street name in a conversation' : 'someone describe a ghost — unnamed, no corp affiliation, making noise'}. You keep walking.`, color: '#888899' },
+    { id:'nm_09', msg: (c) => `The Void is loud tonight. Even the people who can't jack in say they feel it — a pressure behind the eyes, like something enormous is moving.`, color: '#69ff47' },
+    { id:'nm_10', msg: (c) => `Axiom has started numbering their drones. You've seen three with the same number. Either they're recycling serial codes or something worse.`, color: '#00e5ff' },
+    { id:'nm_17', msg: (c) => `A Ghost Network contact passes you something without stopping: a name. Director Reyes. Division Seven. "If you're making noise," they say, "she already knows."`, color: '#69ff47' },
+    { id:'nm_18', msg: (c) => `INTERCEPTED AXIOM SIGNAL: "Confirm subject designation ${c.name}. Flag as active. Director Reyes authorised." The signal is three minutes old.`, color: '#00e5ff' },
+    { id:'nm_11', msg: (c) => c.backstory === 'exile' ? `An old Axiom network ID pings your implant. Your own former credentials. They're still active. They shouldn't be. Someone is leaving a door open.` : `An encrypted ping from an Axiom address. It doesn't resolve to anything registered. Someone is using their infrastructure against them.`, color: '#00e5ff' },
+    { id:'nm_12', msg: (c) => `A man in a Spire Base uniform asks you for directions to the Undernet. He's not lost. He's running.`, color: '#888899' },
+    { id:'nm_13', msg: (c) => `A woman on the street stops mid-sentence and goes still for about four seconds. Then she continues as if nothing happened. Firmware update, probably. She doesn't seem to have noticed.`, color: '#888899' },
+    { id:'nm_14', msg: (c) => `You pass a building that used to be a Humanist collective meeting space. Axiom zoning order, six months ago. The windows are boarded. Someone has written STAY HUMAN on the boards. In very small letters, underneath: WE TRIED.`, color: '#888888' },
+    { id:'nm_15', msg: (c) => `A child asks you if you're Synced. You answer. They nod, processing, then say: "My dad got Synced and now he doesn't play with me anymore but he says he's fine." They say it like they've said it many times.`, color: '#888899' },
+    { id:'nm_16', msg: (c) => c.backstory === 'ghost' ? `A Ghost Network contact looks at you differently. "Heard you had a Sync extracted. What do you remember from before?" You give the honest answer. They nod slowly. "That's about what we expected."` : `Ghost Network contact, briefly: "Extraction survival rate is up. Seventy-one percent full recall now. Medica's getting better." They move on before you can ask what happened to the other twenty-nine.`, color: '#69ff47' },
+  ],
+  late: [
+    { id:'nl_01', msg: (c) => `The city feels tighter. More checkpoints. Longer cycles on the drone patrols. Axiom knows something is coming. They just don't know it's you.`, color: '#ff4444' },
+    { id:'nl_02', msg: (c) => `You overhear two Axiom guards talking about a security review. They sound tired. They sound scared. That's new.`, color: '#888899' },
+    { id:'nl_03', msg: (c) => `${c.kills} bodies ${c.kills === 1 ? 'is' : 'are'} a lot for one person. The Undernet knows it too. They've started calling you something. You prefer not to know what.`, color: '#ff4444' },
+    { id:'nl_04', msg: (c) => `The Ghost Network has gone completely dark. No broadcasts. No pings. Either they're running silent before something big — or Axiom got to them. Either way: now or never.`, color: '#69ff47' },
+    { id:'nl_05', msg: (c) => `A Void-touched runner you've seen before looks at you differently now. Not with fear. With something that might be recognition. Or envy.`, color: '#69ff47' },
+    { id:'nl_06', msg: (c) => c.backstory === 'debt' ? `Your implant picks up a medical facility signal. Her biometrics are there, if you know her ID. You do. She's still working. Still breathing. Not for much longer if you don't move.` : `The Spire is visible from every district tonight. Every window lit. Something is happening up there that no one down here is supposed to know about.`, color: '#888899' },
+    { id:'nl_07', msg: (c) => `Axiom has started asking for names at the checkpoints. Not checking papers — asking. Writing them down by hand. Old-fashioned. Untraceable. Smart.`, color: '#ff4444' },
+    { id:'nl_08', msg: (c) => `You count the cameras on this block. Seventeen. Last month it was nine. They're not worried about crime. They're worried about something specific.`, color: '#00e5ff' },
+  ],
+};
+
+// Narrative event state — stored per run
+let RUN_EVENTS_SEEN = new Set();
+const pickNarrativeEvent = (char) => {
+  const visited = (char.visited || []).length;
+  const phase = visited < 5 ? 'early' : visited < 14 ? 'mid' : 'late';
+  const pool = NARRATIVE_EVENTS[phase] || NARRATIVE_EVENTS.early;
+  const available = pool.filter(e => !RUN_EVENTS_SEEN.has(e.id));
+  if (!available.length) return null;
+  const ev = available[Math.floor(Math.random() * available.length)];
+  RUN_EVENTS_SEEN.add(ev.id);
+  return ev;
+};
+const resetNarrativeEvents = () => { RUN_EVENTS_SEEN = new Set(); };
+
+// ── THRESHOLD SCENES ──
 // Triggered once per run at key story moments.
 // Returns a prompt for AI scene generation.
+const THRESHOLD_SCENES = {
+  first_undernet: {
+    id: 'first_undernet',
+    trigger: (char) => char.pos && char.pos.layer === 1 && !(char.thresholdsSeen||[]).includes('first_undernet'),
+    aiPrompt: (char) => `You are writing the internal voice of ${char.name}, a ${char.archetype} in Neo-Kairo 2089. They have just descended to the Undernet for the first time — the underground layer of the city, where the light doesn't reach and the city's forgotten people live. Backstory: ${BACKSTORIES[char.backstory]?.hook || 'A ghost with no past and a future to build.'}. Write 2-3 sentences of first-person present-tense internal monologue. Specific sensory detail. No clichés. Cyberpunk noir tone — not purple prose. End on an image, not a feeling.`,
+    fallback: (char) => `The air changes the moment you hit the bottom. Warm and stale, like the city exhaled down here and forgot to breathe back in. Somewhere above you, forty million people are paying rent.`,
+  },
+  first_hostile_faction: {
+    id: 'first_hostile_faction',
+    trigger: (char) => Object.values(char.reputation||{}).some(v => v <= -40) && !(char.thresholdsSeen||[]).includes('first_hostile_faction'),
+    aiPrompt: (char) => `You are writing the internal voice of ${char.name}, a ${char.archetype} in Neo-Kairo 2089. They have just crossed a point of no return with a faction — made enemies powerful enough to send people after them. Backstory: ${BACKSTORIES[char.backstory]?.hook || 'A ghost with no past.'}. Write 2-3 sentences of first-person internal monologue about what it means to have powerful enemies in this city. Specific, unsentimental. End on a decision or acceptance.`,
+    fallback: () => `You've crossed someone. Not just someone — an organisation with resources and patience and memory that outlasts any individual. The smart move would have been to stay small. You weren't smart. You were necessary.`,
+  },
+  heist_approach: {
+    id: 'heist_approach',
+    trigger: (char) => {
+      const rep = char.reputation || {};
+      const underground = Math.max(rep.ghosts || 0, rep.meridian || 0, rep.ironhand || 0);
+      const progress = [
+        char.level >= HEIST_REQS.level,
+        char.credits >= HEIST_REQS.credits,
+        (rep.axiom || 0) <= -25,
+        underground >= 60,
+      ].filter(Boolean).length;
+      return progress >= 3 && !(char.thresholdsSeen||[]).includes('heist_approach');
+    },
+    aiPrompt: (char) => `You are writing the internal voice of ${char.name}, a ${char.archetype} in Neo-Kairo 2089. They are close to executing a mission to destroy Axiom Corp's city-wide surveillance grid and CortexSync firmware pipeline. Personal stake: ${BACKSTORIES[char.backstory]?.loss || 'Everything they lost to corporate power.'}. Write 2-3 sentences of first-person internal monologue about being almost ready — the strange feeling of a plan becoming real. Terse. Not triumphant. The weight of what comes next.`,
+    fallback: (char) => `You've been building toward this long enough that it stopped feeling like a plan and started feeling like gravity. You're not ready. You don't think ready is a real thing. You go anyway.`,
+  },
+  // ── MAIN QUEST BEATS ──
+  // Beat 1: THE DISCOVERY — personal wound connects to the larger picture
+  // Fires after first sidequest completed with backstory contact (jobsDone >= 2, questsDone >= 1)
+  discovery: {
+    id: 'discovery',
+    trigger: (char) => {
+      const questDone = (char.questsCompleted || []).length >= 1;
+      const jobsDone = (char.jobsDone || 0) >= 2;
+      return questDone && jobsDone && !(char.thresholdsSeen||[]).includes('discovery');
+    },
+    aiPrompt: (char) => {
+      const bs = BACKSTORIES[char.backstory] || BACKSTORIES.debt;
+      const contactLines = {
+        debt: `${char.name}'s contact Rusty just told them something: the employment debt their sister signed isn't a financial contract. It's a firmware compliance agreement. Axiom owns the maintenance schedule for her mind. If she stops servicing the debt, cognitive degradation begins within ninety days.`,
+        witness: `${char.name}'s contact Nadia just showed them something: the firmware update that stopped eleven people from fighting that night wasn't a coincidence. It was a targeted suppression package, precision-deployed to a two-block radius. Someone authorised that specifically.`,
+        exile: `${char.name}'s contact Aria just confirmed something: the preference modification team ${char.name} used to work on wasn't experimental. It was operational. The update batches are still running. The targets now include Ghost Network contacts, Meridian coordinators, and anyone who's found data discrepancies in the Sync.`,
+        ghost: `${char.name}'s contact Doc Mem just told them what she found in the extraction data: what was written into ${char.name} wasn't standard firmware. It was a targeted package. Someone inside Axiom authorised a specific modification for a specific reason. She doesn't know why. She knows it wasn't random.`,
+        corpo: `${char.name}'s contact Aria just handed them something: a Division Seven file with their name on it. The restructure that cut their division wasn't budget. It was cleanup. Someone inside Axiom wanted them outside the building before a specific operation launched. She doesn't say which operation. She doesn't have to.`,
+      };
+      const context = contactLines[char.backstory] || contactLines.debt;
+      return `You are writing the internal voice of ${char.name}, a ${char.archetype} in Neo-Kairo 2089. ${context} Write 2-3 sentences of first-person internal monologue. The moment the personal becomes political — when they realise their wound isn't isolated, it's a symptom of something much larger and deliberate. Terse. Specific. End on a decision that hasn't been spoken yet.`;
+    },
+    fallback: (char) => {
+      const lines = {
+        debt: `The debt isn't money. It's the maintenance contract on her mind. Axiom holds the schedule. Miss three update cycles and she starts to degrade — not as a threat, just as how the hardware works without manufacturer support.
+
+You sit with that for a long time.
+
+Then you decide what kind of run this is.`,
+        witness: `The firmware update that stopped eleven people from fighting wasn't a glitch. It was a package. Precision-targeted. Two-block radius. Someone in Axiom wrote that update specifically for that night.
+
+You've been asking what it means for years. Now you know what it means.
+
+Now you have to decide what to do with that.`,
+        exile: `The preference modification team you worked on wasn't experimental. It's still running. The targets have expanded. You wrote the architecture for this. You didn't know what it would become.
+
+Maybe you did. That's the part you can't sit with.
+
+You've been running from what you built. You're going to have to turn around.`,
+        ghost: `The extraction data shows a targeted modification. Someone authorised a specific package for a specific person. You were that person. The reason isn't in the file.
+
+Six months of memory gone and someone in Axiom knows exactly what they took and why.
+
+You're going to find out what it was.`,
+        corpo: `The restructure that cut you loose was cleanup. Someone wanted you outside before something launched. You spent eighteen months thinking it was politics.
+
+It wasn't politics. It was containment.
+
+Someone in Axiom is afraid of what you know. That changes the negotiation.`,
+      };
+      return lines[char.backstory] || lines.debt;
+    },
+  },
+
+  // Beat 2: THE COMMITMENT — point of no return, active choice to go after Axiom
+  commitment: {
+    id: 'commitment',
+    trigger: (char) => {
+      const rep = char.reputation || {};
+      const axiomRep = rep.axiom || 0;
+      const isAxiomPath = axiomRep >= 50;
+      const isResistancePath = axiomRep <= -40;
+      return (isAxiomPath || isResistancePath) &&
+        (char.jobsDone || 0) >= 5 &&
+        !(char.thresholdsSeen||[]).includes('commitment');
+    },
+    aiPrompt: (char) => {
+      const rep = char.reputation || {};
+      const isAxiomPath = (rep.axiom || 0) >= 50;
+      if (isAxiomPath) {
+        return `You are writing the internal voice of ${char.name}, a ${char.archetype} in Neo-Kairo 2089. They have been doing Axiom-aligned work — contracts, enforcement, compliance jobs. They've crossed the point where they're a contractor into the point where they're an asset. Axiom has noticed them. Someone in Division Seven has pulled their file. Backstory: ${BACKSTORIES[char.backstory]?.hook || 'A runner in the city.'}. Write 2-3 sentences of first-person internal monologue. The moment they commit — not to Axiom ideologically, but to this path specifically. What does it feel like to stop running and start arriving? Terse. Unsentimental. End on what they're trading and what they're getting.`;
+      }
+      return `You are writing the internal voice of ${char.name}, a ${char.archetype} in Neo-Kairo 2089. They have made Axiom hostile — done enough damage, crossed enough lines that there's no going back to neutral. Their contact has asked them directly: are you in? Not for a job. For the whole thing. Backstory: ${BACKSTORIES[char.backstory]?.hook || 'A runner in the city.'}. Write 2-3 sentences of first-person internal monologue. The moment of active commitment — not because they have to, but because they've decided. What does it cost? What does it clarify? Terse. End on the decision itself.`;
+    },
+    fallback: (char) => {
+      const rep = char.reputation || {};
+      const isAxiomPath = (rep.axiom || 0) >= 50;
+      if (isAxiomPath) {
+        return `Someone in Division Seven pulled your file. You know because the jobs started changing — more specific, higher clearance, better pay. They're not hiring you for a contract. They're assessing whether to bring you back in.
+
+You've been waiting for this.
+
+You make sure they like what they see.`;
+      }
+      return `Your contact asks once. Not for a job — for the whole thing. You've been working toward this without naming it. Now it has a name.
+
+You say yes before they finish asking.
+
+Some decisions you've already made. You just haven't said them out loud yet.`;
+    },
+  },
+
+  // Beat 3: THE PLAN — faction contact brings the intelligence that makes the ending possible
+  the_plan: {
+    id: 'the_plan',
+    trigger: (char) => {
+      const rep = char.reputation || {};
+      const underground = Math.max(rep.ghosts || 0, rep.meridian || 0, rep.ironhand || 0);
+      const isAxiomPath = (rep.axiom || 0) >= 70;
+      const isResistancePath = underground >= 45 && (rep.axiom || 0) <= -40;
+      return (isAxiomPath || isResistancePath) &&
+        char.level >= 6 &&
+        !(char.thresholdsSeen||[]).includes('the_plan');
+    },
+    aiPrompt: (char) => {
+      const rep = char.reputation || {};
+      const isAxiomPath = (rep.axiom || 0) >= 70;
+      if (isAxiomPath) {
+        return `You are writing the internal voice of ${char.name}, a ${char.archetype} in Neo-Kairo 2089. They've just been briefed by an Axiom Division Seven handler: Operation Zero Export. The firmware pipeline. The global rollout. The specific role they'll play in securing Neo-Kairo as the proof of concept before export. Personal stake: ${BACKSTORIES[char.backstory]?.loss || 'Everything they gave up to get here.'}. Write 2-3 sentences of first-person internal monologue. Not excitement — the specific feeling of a plan that was always this. The shape of it. What it requires. What it means that they're being trusted with it. End on what they'll need to do that they haven't done yet.`;
+      }
+      return `You are writing the internal voice of ${char.name}, a ${char.archetype} in Neo-Kairo 2089. Their underground contact has just given them the intelligence that makes the operation possible: the location of the firmware pipeline server, the maintenance window, the three-minute gap in Axiom's surveillance rotation. It's real. It's actionable. Personal stake: ${BACKSTORIES[char.backstory]?.loss || 'Everything they lost to corporate power.'}. Write 2-3 sentences of first-person internal monologue. The moment a goal becomes a plan — when abstract intention meets specific possibility. Not triumphant. Weighted. End on what they'll need that they don't have yet.`;
+    },
+    fallback: (char) => {
+      const rep = char.reputation || {};
+      const isAxiomPath = (rep.axiom || 0) >= 70;
+      if (isAxiomPath) {
+        return `Operation Zero Export. They brief you in a clean room in the Spire — no recording, no log. The pipeline. The rollout. Your specific role in making sure the city holds long enough to export.
+
+This is what you came back for.
+
+You don't say that. You listen, take the file, and start calculating what you still need.`;
+      }
+      return `The pipeline is in the Spire basement. Three-minute window, 0300, during maintenance rotation. Your contact lays it out clean.
+
+For the first time the whole thing is visible from start to finish.
+
+You look at what you have. You look at what you need. You go get the rest.`;
+    },
+  },
+
+  // Named antagonist — Director Reyes, Division Seven
+  // Fires mid-run when Axiom rep crosses -50 OR +60 (she's paying attention either way)
+  reyes_notice: {
+    id: 'reyes_notice',
+    trigger: (char) => {
+      const axiomRep = char.reputation?.axiom || 0;
+      const noticed = axiomRep <= -50 || axiomRep >= 60;
+      return noticed && (char.jobsDone || 0) >= 4 && !(char.thresholdsSeen||[]).includes('reyes_notice');
+    },
+    aiPrompt: (char) => {
+      const isAxiomPath = (char.reputation?.axiom || 0) >= 60;
+      if (isAxiomPath) {
+        return `You are writing a short intercepted message in Neo-Kairo 2089. Director Reyes, Division Seven, Axiom Corp, has flagged ${char.name} as a person of interest — not as a threat, but as a potential asset. She is precise, unsentimental, and has been running city-level operations for eleven years. Write 2-3 sentences as an internal Axiom memo from Reyes to her handler team. Clipped corporate register. She notes ${char.name}'s recent work, their history, and a single directive. End on something that reveals she has been watching longer than ${char.name} knows.`;
+      }
+      return `You are writing a short intercepted message in Neo-Kairo 2089. Director Reyes, Division Seven, Axiom Corp, has flagged ${char.name} as a priority threat. She is precise, unsentimental, and has been running city-level operations for eleven years. Write 2-3 sentences as an internal Axiom memo from Reyes to her enforcement team. Clipped corporate register. She identifies ${char.name} by handle, notes their recent actions against Axiom, and gives a single directive. End on something that makes it clear she's been watching longer than ${char.name} knew.`;
+    },
+    fallback: (char) => {
+      const isAxiomPath = (char.reputation?.axiom || 0) >= 60;
+      if (isAxiomPath) {
+        return `AXIOM INTERNAL — DIVISION SEVEN
+FROM: Director Reyes
+RE: Asset flagged — ${char.name}
+
+Work history consistent with Division Seven profile. Recommend accelerated access. Note: subject has been in our data since before their last known employer. We've been watching. Now we let them know we're watching.`;
+      }
+      return `AXIOM INTERNAL — DIVISION SEVEN
+FROM: Director Reyes
+RE: Priority flag — ${char.name}
+
+Subject has crossed three Axiom operations in eight days. Not random. Recommend active response. Note: we've had eyes on this one since the Ghost Network flagged their extraction. They think they found us. We let them think that.`;
+    },
+  },
+
+  humanity_5: {
+    id: 'humanity_5',
+    trigger: (char) => (char.humanity || 10) <= 5 && !(char.thresholdsSeen||[]).includes('humanity_5'),
+    aiPrompt: (char) => `You are writing the internal voice of ${char.name}, a ${char.archetype} in Neo-Kairo 2089. They have reached a point where more than half of their body is chrome — augmented past the point of unremarkable, past the point people stop noticing and start watching. Backstory: ${BACKSTORIES[char.backstory]?.hook || 'A ghost with no past.'}. Write 2-3 sentences of first-person present-tense internal monologue. The subject is not the chrome itself — it is the gap between who they were and what they are becoming. What do they notice about themselves that they didn't use to notice? Specific and unsentimental. Cyberpunk noir tone. No clichés.`,
+    fallback: (char) => `You catch your reflection in a shop window and run a quick inventory: how much of what you see is still original. The number is smaller than last time you checked. You're not sure when you stopped finding that interesting.`,
+  },
+  humanity_3: {
+    id: 'humanity_3',
+    trigger: (char) => (char.humanity || 10) <= 3 && !(char.thresholdsSeen||[]).includes('humanity_3'),
+    aiPrompt: (char) => `You are writing the internal voice of ${char.name}, a ${char.archetype} in Neo-Kairo 2089. They are now mostly chrome — three points of humanity remaining. The question of what it means to be human is no longer abstract. Backstory: ${BACKSTORIES[char.backstory]?.hook || 'A ghost with no past.'}. Write 2-3 sentences of first-person present-tense internal monologue about what it feels like to be this far in. Not self-pity — observation. What do they feel that surprises them? What do they no longer feel that they expected to miss? End on something specific. No resolution.`,
+    fallback: (char) => `There's a moment sometimes, in the quiet, where you try to locate the part that makes decisions. The part that wanted this. You find the augments. You find the chrome. Somewhere underneath there's still something that knows the difference between choosing and drifting. You hold onto that.`,
+  },
+  humanity_1: {
+    id: 'humanity_1',
+    trigger: (char) => (char.humanity || 10) <= 1 && !(char.thresholdsSeen||[]).includes('humanity_1'),
+    aiPrompt: (char) => `You are writing the internal voice of ${char.name}, a ${char.archetype} in Neo-Kairo 2089. They have one point of humanity left. They are almost entirely chrome. The cascade is close. Backstory: ${BACKSTORIES[char.backstory]?.hook || 'A ghost with no past.'}. Write 2-3 sentences. Not panic. Not acceptance. The specific, strange experience of being almost gone while still being present enough to notice. What does the last piece of the original self feel like when everything else has been replaced? What is it holding onto, and why? Terse. True. End on an image, not a feeling.`,
+    fallback: (char) => `You don't sleep anymore. The chrome doesn't need it. Something in you still reaches for it — some reflex from a body that's mostly not there now. You let it. Whatever's left of you is spending its energy on the run. That's enough. That has to be enough.`,
+  },
+};
+
+// ── JOB GIVER VOICE ──
+// NPCs give jobs. Different from a board. They have a name and an exchange.
+const JOB_GIVER_NAMES = {
+  // By chunk type and faction
+  gang_turf:    ['a scarred fixer with chrome knuckles', 'a woman who doesn\'t introduce herself', 'someone\'s lieutenant — you don\'t ask whose'],
+  black_market: ['a dealer with burned fingerprints', 'an anonymous voice from behind a screen', 'a contact who smells like solder and ozone'],
+  residential:  ['a neighbour who clearly isn\'t', 'a resident who\'s been waiting three days', 'someone\'s frightened parent'],
+  market:       ['a vendor who stops pretending to sell', 'a trader with two phones and one eye on the door', 'a middleman who\'s scared of the client'],
+  industrial:   ['a foreman who\'s not a foreman', 'a worker with unionised eyes and a private problem', 'a maintenance contact who knows where everything runs'],
+  ruins:        ['a squatter who\'s been watching the wrong building', 'a scavenger with better information than their address suggests', 'someone who found something they weren\'t meant to'],
+  safehouse:    ['your contact, looking tired', 'the handler, unusually direct', 'someone you half-recognise — maybe they work with Nadia'],
+  corporate:    ['a junior Axiom analyst with sweating hands', 'a corpo defector who\'s run out of time', 'someone\'s assistant, very carefully not in uniform'],
+  tunnel:       ['a runner who\'s been running this route for years', 'a pipe-market dealer with side interests', 'someone who knows the Undernet better than daylight'],
+  sump:         ['a market boss with a problem', 'a water-trader who knows the infrastructure', 'an Undernet elder who doesn\'t explain how they have this information'],
+  lobby:        ['a Spire worker who wants out', 'an Axiom employee on a lunch break that\'s about to end', 'someone you have thirty seconds to hear out'],
+  checkpoint:   ['a guard who\'s been convinced', 'a nervous checkpoint official', 'someone on the wrong side of the gate'],
+  default:      ['a contact', 'someone with a job', 'a fixer with a problem'],
+};
+
+const getJobGiverName = (chunkType, faction) => {
+  const pool = JOB_GIVER_NAMES[chunkType] || JOB_GIVER_NAMES.default;
+  return pool[Math.floor(Math.random() * pool.length)];
+};
+
+// ── NAME GENERATOR ──
+const NAME_PREFIXES = [
+  'Zero','Null','Ghost','Cipher','Ash','Hex','Neon','Void','Static','Wraith',
+  'Sable','Ruin','Nova','Glitch','Smog','Rust','Chrome','Flux','Shade','Vex',
+  'Lag','Burn','Breach','Wire','Scorch','Haunt','Haze','Splice','Nerve','Dark',
+  'Feral','Torn','Slick','Bleed','Drift','Surge','Hollow','Pitch','Crypt','Fringe',
+  'Keen','Spent','Lace','Mute','Razor','Sink','Thin','Warp','Shard','Quake',
+];
+const NAME_SUFFIXES = [
+  'Runner','Wire','Blade','Burn','Coil','Signal','Shift','Jack','Crow','Spike',
+  'Echo','Patch','Rift','Fang','Volt','Smoke','Drift','Arc','Hook','Loop',
+  'Lock','Feed','Frame','Mask','Pulse','Null','Shroud','Trace','Scar','Link',
+  'Nail','Seam','Cage','Drop','Graft','Mesh','Node','Slot','Vent','Core',
+  'Tooth','Claw','Forge','Gate','Lens','Root','Shell','Skin','Stack','Thread',
+];
+const NAME_HANDLES = [
+  'V','Kira','Raze','Syn','Ash','Dex','Cove','Mox','Petra','Kai',
+  'Lex','Jin','Skye','Rune','Bex','Nox','Flux','Syd','Grim','Colt',
+  'Ziv','Wren','Tav','Sev','Pix','Ori','Nyx','Lev','Kaz','Jex',
+  'Hex','Fuse','Ede','Cray','Brix','Axa','Zara','Yat','Xan','Vorn',
+  'Ura','Trix','Sol','Ren','Quin','Paz','Omi','Nev','Miri','Lox',
+];
+const generateHandle = () => {
+  const r = Math.random();
+  if (r < 0.4) {
+    // Compound: prefix + suffix
+    return NAME_PREFIXES[Math.floor(Math.random() * NAME_PREFIXES.length)] + NAME_SUFFIXES[Math.floor(Math.random() * NAME_SUFFIXES.length)];
+  } else if (r < 0.7) {
+    // Short handle only
+    return NAME_HANDLES[Math.floor(Math.random() * NAME_HANDLES.length)];
+  } else {
+    // Handle + number suffix
+    const h = NAME_HANDLES[Math.floor(Math.random() * NAME_HANDLES.length)];
+    const n = Math.floor(Math.random() * 9) + 1;
+    return h + '-' + n;
+  }
+};
 
 // ── LOCATION ATMOSPHERE ──
 // Replaces generic chunk description with evocative writing per type
+const CHUNK_ATMOSPHERE = {
+  residential:  ['Laundry strung between windows. A man sits on his stoop staring at nothing — Synced, high integration, probably home but not present. Someone cooking. Someone crying.', 'Four floors of lives stacked on top of each other. Half of them are on the Axiom update schedule. The other half watch the first half and don\'t know what they\'re looking at anymore.', 'The kind of block where everyone knows which neighbours got Synced last year. Nobody says what they\'ve noticed since.'],
+  market:       ['A hundred deals happening in the space of a block. The Synced vendors process inventory and negotiate simultaneously. The unsynced ones are slower and angrier about it in a way they can\'t quite name.', 'The neon here is older. Patched. The signs advertise things that don\'t exist anymore. Half the stall owners have the slight absence behind the eyes that means they\'re running overlay.', 'You can buy almost anything here including, if you know who to ask, a black-market Sync install with no firmware update clause. The waiting list is long.'],
+  gang_turf:    ['Ironhand territory. Mostly unsynced — not ideology, economics. The cognitive gap between them and the Axiom contractors who took their jobs has been growing for eight years. The anger has nowhere clean to go.', 'The graffiti here is a language. Some of it says STAY HUMAN. Some of it says FIRMWARE IS POISON. Some of it just has a date — the day the factory started preferring Synced workers.', 'A block that negotiated its own peace. The terms include: no Axiom firmware updates administered on this street. That\'s a rule with teeth.'],
+  industrial:   ['The machines don\'t stop. The Synced workers outperform the unsynced by 40% and management has the metrics to prove it. The unsynced ones know. They see the numbers. They haven\'t left yet.', 'Axiom bought the factory eight months ago. First update: mandatory Sync for all senior staff. Second update: reclassification of unsynced workers as \'transitional positions.\' Third update: pending.', 'Everything smells like hot metal and something chemical. A woman on the line has the absent expression that means she\'s running work overlay — processing three tasks at once, none of them visible from outside.'],
+  ruins:        ['What this used to be is still visible. Some of it used to be Humanist meeting spaces — groups of people practicing being present without augmentation. Axiom zoning orders shut most of them down. Some moved underground.', 'The city grew over this place. Squatters here are mostly unsynced — can\'t afford it or won\'t risk it. They watch each other in the old way, reading faces instead of data feeds. It\'s slower. They don\'t mind.', 'Scavengers, squatters, and the occasional corpo team. None of them ask each other questions. The ruins are one of the few places in Neo-Kairo where the Sync\'s advantage doesn\'t translate directly into power.'],
+  safehouse:    ['Someone went to the trouble of making this look ordinary. The lock is new. No Axiom cameras have line of sight. Whether that\'s accident or design depends on whether you know what the Humanists use these spaces for.', 'Off the grid. No firmware update pings reach this location — the walls are lined with something. The people inside have reasons to want their thoughts to be their own.', 'Clean, careful, quiet. A place where people come to be unobserved. Some of them are Synced and need a break from the overlay. Some of them are unsynced and need a break from being watched.'],
+  black_market: ['Everything here costs more than it looks like it should. That includes the Sync hardware — off-brand, no Axiom firmware clause, no update mandatory. The mortality rate on extractions is real. So is the demand.', 'The market has rules. One of them: no Axiom firmware administrators on-site. That rule is enforced. Another: if you\'re here to buy a black-market Sync, you already know the risks. Nobody will warn you again.', 'Medica, Ironhand, Ghost Network — they all touch this place. The Ghost Network pragmatists buy hardware here. The purists come to argue with them about it. Everyone comes to buy things Axiom doesn\'t want them to have.'],
+  corporate:    ['Axiom architecture. Every surface surveilled. The staff all have the Sync — mandatory above grade three. Their eye movements are slightly wrong, tracking invisible overlays. They look at you and simultaneously look at your biometric read.', 'Clean, efficient, monitored. The Synced workers here move faster than you. They know it. Some of them feel bad about it in a way the firmware is slowly editing out.', 'Corpo space. The light is the colour of productivity. Everyone in here is running at Sync speed and the ones who aren\'t are the ones whose jobs haven\'t been reclassified yet.'],
+  tunnel:       ['The Undernet is older than the Sync. The tunnels were here before any of this. The people who live down here made a choice — actively or by circumstance — to be off the update grid.', 'Light sources improvised. People improvised too. Nobody down here is running Axiom firmware. Whether that\'s freedom or disadvantage depends on what you\'re trying to do.', 'Sound travels differently underground. A woman nearby is speaking to someone who isn\'t present — Synced, running overlay. Her companion is physically absent. Probably always is.'],
+  sump:         ['The bottom of the city\'s bottom. The Sync penetration rate at sump level is under 10% — too expensive, too far from Axiom infrastructure, too little to gain. The people here are baseline human in a city that\'s stopped valuing that.', 'Pipe Market operates on barter and memory. The unsynced merchants here hold prices in their heads. It\'s slower. They\'re used to being slower. They have been for eight years.', 'You can smell the Undernet. Down here the Sync\'s cognitive advantage means almost nothing. The skills that matter — who to trust, where it\'s safe, how to read a face — these are things the firmware hasn\'t learned to replace yet.'],
+  lobby:        ['Axiom Tower. Every person in here is Synced. You can see it in the slight overlay-lag behind their eyes, the way they process you faster than is normal. You are the only baseline human in the room. They all know.', 'Security here isn\'t subtle. The guards are running tactical overlay — they saw your biometrics before you cleared the door. The Sync gives them eight seconds of advantage in any encounter. They know that number exactly.', 'The corpo threshold. Above this floor, the Sync is mandatory. Below it, you\'re tolerated. The distance between those two conditions is measured in cognitive percentiles and everyone here knows exactly where you rank.'],
+  checkpoint:   ['Checkpoints exist to remind you that movement is a privilege. The guards here run facial recognition overlay — they see your ID before you hand it over. If you\'re Synced, the checkpoint is three seconds. If you\'re not, it\'s longer.', 'The gate is Axiom-administered. The guards are hired. Some of them are Synced, some aren\'t. The ones who aren\'t are waiting to be reclassified. They know this and it shows in how they handle the unsynced.', 'Papers, presence, patience. The Synced get waved through. The unsynced get checked. Nobody says this directly. The time difference is about forty seconds. Everybody counts.'],
+  ripper_doc:   ['The smell is antiseptic under something older. Surgical tools lined up. No Sync hardware on display — what they do here is off the Axiom grid, which is the whole point.', 'No licence on the wall. No questions asked. A woman ahead of you is getting a black-market Sync extracted. She\'s been under forty minutes. Doc doesn\'t look worried. That\'s the most reassurance you\'re going to get.', 'They call them Rippers. What they do before the installation is half the reason. What they do with the Sync hardware — installing it without the Axiom firmware clause — is the other half.'],
+};
+
+const getChunkAtmosphere = (chunkType) => {
+  const pool = CHUNK_ATMOSPHERE[chunkType] || ['You move through it. That\'s enough.'];
+  return pool[Math.floor(Math.random() * pool.length)];
+};
+
+
 function createCharacter(name, archetype, backstoryId) {
   const b = ARCHETYPES[archetype] || ARCHETYPES.ghost;
   const leg = SESSION_LEGACY;
